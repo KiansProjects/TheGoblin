@@ -1,4 +1,16 @@
+# Build
 build/
 .classes/
 target/
 *.jar
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sonstiges
+*.log
+.DS_Store
