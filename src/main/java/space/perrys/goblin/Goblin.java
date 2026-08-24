@@ -1,0 +1,262 @@
+package space.perrys.goblin;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * TheGoblin - zerlegt ein YouTube-Video anhand seiner Kapitel in einzelne
+ * Episodendateien und legt sie so ab, wie Jellyfin sie erwartet.
+ */
+public final class Goblin {
+
+    private static final String USAGE = """
+            TheGoblin
+
+            Befehle:
+              goblin series <url> <name> [optionen]   Video in Episoden zerlegen
+              goblin chapters <url>                   nur die erkannten Kapitel anzeigen
+
+            Optionen fuer 'series':
+              -o, --out <pfad>        Zielverzeichnis (Standard: aktuelles Verzeichnis)
+              -s, --season <n>        Staffelnummer (Standard: 1)
+              -e, --start-episode <n> Nummer der ersten Episode (Standard: 1)
+                  --year <jahr>       Erscheinungsjahr, ueberschreibt TMDb
+                  --tmdb-id <id>      TMDb-ID fest vorgeben statt zu suchen
+                  --no-tmdb           weder ID noch Artwork holen
+                  --reencode          exakt schneiden statt auf Keyframes zu runden
+                  --keep              das komplette Video nach dem Schneiden behalten
+                  --dry-run           nur zeigen, was passieren wuerde
+
+            Umgebung:
+              TMDB_API_KEY            fuer Serien-ID und Artwork (optional)
+            """;
+
+    public static void main(String[] args) {
+        try {
+            System.exit(run(args));
+        } catch (Exception e) {
+            System.err.println("Fehler: " + e.getMessage());
+            System.exit(1);
+        }
+    }
+
+    private static int run(String[] args) throws Exception {
+        if (args.length == 0 || args[0].equals("-h") || args[0].equals("--help")) {
+            System.out.print(USAGE);
+            return 0;
+        }
+
+        return switch (args[0]) {
+            case "series" -> series(args);
+            case "chapters" -> chapters(args);
+            default -> {
+                System.err.println("Unbekannter Befehl: " + args[0]);
+                System.err.print(USAGE);
+                yield 2;
+            }
+        };
+    }
+
+    // ------------------------------------------------------------------
+    // goblin chapters <url>
+    // ------------------------------------------------------------------
+
+    private static int chapters(String[] args) throws Exception {
+        if (args.length < 2) {
+            System.err.println("Aufruf: goblin chapters <url>");
+            return 2;
+        }
+        requireTools(false);
+
+        VideoMeta meta = YtDlp.metadata(args[1]);
+        List<Chapter> found = resolveChapters(meta);
+
+        if (found.isEmpty()) {
+            System.out.println("Keine Kapitel gefunden.");
+            return 1;
+        }
+
+        System.out.println(meta.title());
+        System.out.println();
+        for (int i = 0; i < found.size(); i++) {
+            Chapter c = found.get(i);
+            System.out.printf("  %2d. %-9s %s  (%.0f s)%n",
+                    i + 1, c.timecode(), c.title(), c.duration());
+        }
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // goblin series <url> <name>
+    // ------------------------------------------------------------------
+
+    private static int series(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.err.println("Aufruf: goblin series <url> <name> [optionen]");
+            return 2;
+        }
+
+        String url = args[1];
+        String name = args[2];
+
+        Path out = Path.of(".");
+        int season = 1;
+        int startEpisode = 1;
+        Integer year = null;
+        Integer tmdbId = null;
+        boolean useTmdb = true;
+        boolean reencode = false;
+        boolean keep = false;
+        boolean dryRun = false;
+
+        for (int i = 3; i < args.length; i++) {
+            switch (args[i]) {
+                case "-o", "--out" -> out = Path.of(args[++i]);
+                case "-s", "--season" -> season = Integer.parseInt(args[++i]);
+                case "-e", "--start-episode" -> startEpisode = Integer.parseInt(args[++i]);
+                case "--year" -> year = Integer.valueOf(args[++i]);
+                case "--tmdb-id" -> tmdbId = Integer.valueOf(args[++i]);
+                case "--no-tmdb" -> useTmdb = false;
+                case "--reencode" -> reencode = true;
+                case "--keep" -> keep = true;
+                case "--dry-run" -> dryRun = true;
+                default -> {
+                    System.err.println("Unbekannte Option: " + args[i]);
+                    return 2;
+                }
+            }
+        }
+
+        requireTools(!dryRun);
+
+        // 1. Metadaten und Kapitel
+        System.out.println("Metadaten abrufen ...");
+        VideoMeta meta = YtDlp.metadata(url);
+        List<Chapter> parts = resolveChapters(meta);
+
+        if (parts.isEmpty()) {
+            System.err.println("""
+                    Keine Kapitel gefunden. Das Video hat weder YouTube-Kapitel noch
+                    erkennbare Zeitstempel in der Beschreibung.""");
+            return 1;
+        }
+        System.out.printf("%d Abschnitte in \"%s\"%n", parts.size(), meta.title());
+
+        // 2. Serie in der Datenbank nachschlagen
+        Tmdb.Series series = null;
+        Tmdb tmdb = useTmdb ? Tmdb.fromEnvironment() : null;
+        if (tmdb != null) {
+            try {
+                series = (tmdbId != null) ? tmdb.byId(tmdbId) : tmdb.search(name);
+                if (series != null) {
+                    System.out.printf("TMDb: %s (%s), ID %d%n",
+                            series.name(), series.year(), series.id());
+                }
+            } catch (IOException e) {
+                System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
+            }
+        } else if (useTmdb) {
+            System.out.println("Kein TMDB_API_KEY gesetzt, ueberspringe Artwork.");
+        }
+
+        Integer folderYear = (year != null) ? year : (series != null ? series.year() : null);
+        Integer folderId = (tmdbId != null) ? tmdbId : (series != null ? series.id() : null);
+
+        Path seriesDir = out.resolve(Naming.seriesFolder(name, folderYear, folderId));
+        Path seasonDir = seriesDir.resolve(Naming.seasonFolder(season));
+
+        // 3. Vorschau
+        System.out.println();
+        System.out.println(seasonDir);
+        for (int i = 0; i < parts.size(); i++) {
+            System.out.println("  " + Naming.episodeFile(
+                    name, season, startEpisode + i, parts.get(i).title()));
+        }
+        System.out.println();
+
+        if (dryRun) {
+            System.out.println("Dry-Run, es wurde nichts geschrieben.");
+            return 0;
+        }
+
+        Files.createDirectories(seasonDir);
+
+        // 4. Video einmal komplett laden
+        Path work = Files.createTempDirectory("goblin-");
+        Path source;
+        try {
+            System.out.println("Video laden ...");
+            source = YtDlp.download(url, work.resolve("source"));
+
+            // 5. Schneiden
+            System.out.println("Schneiden ...");
+            for (int i = 0; i < parts.size(); i++) {
+                Chapter c = parts.get(i);
+                Path target = seasonDir.resolve(
+                        Naming.episodeFile(name, season, startEpisode + i, c.title()));
+                Ffmpeg.cut(source, c, target, reencode);
+                System.out.println("  " + target.getFileName());
+            }
+
+            if (keep) {
+                Path kept = seriesDir.resolve("source-" + meta.id() + ".mp4");
+                Files.move(source, kept);
+                System.out.println("Quelle behalten: " + kept);
+            }
+        } finally {
+            if (!keep) {
+                deleteTree(work);
+            }
+        }
+
+        // 6. Artwork
+        if (tmdb != null && series != null) {
+            tmdb.downloadArtwork(series, seriesDir);
+        }
+
+        System.out.println();
+        System.out.println("Fertig. " + parts.size() + " Episoden in " + seasonDir);
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+
+    /** YouTube-Kapitel haben Vorrang, sonst die Beschreibung durchsuchen. */
+    private static List<Chapter> resolveChapters(VideoMeta meta) {
+        if (!meta.chapters().isEmpty()) {
+            return meta.chapters();
+        }
+        return ChapterParser.parse(meta.description(), meta.duration());
+    }
+
+    private static void requireTools(boolean needFfmpeg) {
+        List<String> missing = new ArrayList<>();
+        if (!Proc.exists("yt-dlp")) {
+            missing.add("yt-dlp");
+        }
+        if (needFfmpeg && !Proc.exists("ffmpeg")) {
+            missing.add("ffmpeg");
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("Nicht im PATH gefunden: " + String.join(", ", missing));
+        }
+    }
+
+    private static void deleteTree(Path root) {
+        try (var paths = Files.walk(root)) {
+            paths.sorted((a, b) -> b.getNameCount() - a.getNameCount())
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException ignored) {
+                            // Aufraeumen ist best effort
+                        }
+                    });
+        } catch (IOException ignored) {
+            // dito
+        }
+    }
+}

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Wrapper, damit 'goblin ...' statt 'java -jar ...' reicht.
+# Nach /usr/local/bin/goblin verlinken und GOBLIN_JAR anpassen.
+GOBLIN_JAR="${GOBLIN_JAR:-$(dirname "$(readlink -f "$0")")/goblin.jar}"
+exec java -jar "$GOBLIN_JAR" "$@"
