@@ -87,3 +87,21 @@ Bevorzugt wird H.264 mit AAC in mp4. YouTube liefert sonst VP9 oder AV1 in webm,
 - Erkennung, ob eine Episode schon existiert, statt blind zu überschreiben
 - `--map` mit einer Datei, die Kapitelnummer auf Episodennummer abbildet, für Fälle wo TMDb anders zählt als das Video
 - Wenn du es als echtes Kommando willst: Quarkus mit `quarkus-picocli` und Native Image gibt dir ein Binary ohne JVM-Startzeit
+
+## Wenn YouTube blockt
+
+Manche Videos verlangen einen bestimmten Player-Client oder eine angemeldete Sitzung. Erkennbar daran, dass das Video im Browser läuft, yt-dlp aber `This video is not available` meldet.
+
+Zwei Stellschrauben, beide ohne Codeänderung:
+
+**Zusatzargumente** über die Umgebungsvariable `YTDLP_ARGS` — wird an jeden yt-dlp-Aufruf angehängt:
+
+```
+--extractor-args "youtube:player_client=web_safari,default"
+```
+
+Zum Nachsehen, was tatsächlich passiert: `chapters <url> --verbose`. Das druckt das vollständige yt-dlp-Kommando und reicht dessen Meldungen durch, statt sie mit `--no-warnings` zu schlucken. Damit siehst du, ob deine Zusatzargumente ankommen und welche Player-Clients yt-dlp probiert hat.
+
+**Cookies**: liegt eine `cookies.txt` im Arbeitsverzeichnis, benutzt TheGoblin sie automatisch. Export im Netscape-Format, z.B. über eine Browser-Erweiterung.
+
+Eine Cookie-Datei ist eine angemeldete Sitzung deines Kontos — behandle sie wie ein Passwort, und rechne damit, dass YouTube automatisiertes Herunterladen mit einem Konto ungern sieht. Für den Anfang lieber erst die Player-Client-Variante probieren.

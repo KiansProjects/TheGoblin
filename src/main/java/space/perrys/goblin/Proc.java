@@ -14,6 +14,15 @@ final class Proc {
 
     /** Fuehrt das Kommando aus und gibt stdout zurueck. Wirft bei Exitcode != 0. */
     static String capture(List<String> command) throws IOException, InterruptedException {
+        return capture(command, false);
+    }
+
+    /**
+     * @param echoStderr true reicht stderr live an die Konsole durch. Fuer die
+     *                   Fehlersuche, wenn man sehen will, woran yt-dlp scheitert.
+     */
+    static String capture(List<String> command, boolean echoStderr)
+            throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(false);
         Process p = pb.start();
@@ -21,7 +30,8 @@ final class Proc {
         StringBuilder out = new StringBuilder();
         StringBuilder err = new StringBuilder();
 
-        Thread errReader = Thread.ofVirtual().start(() -> drain(p.getErrorStream(), err));
+        Thread errReader = Thread.ofVirtual().start(
+                () -> drain(p.getErrorStream(), err, echoStderr));
         drain(p.getInputStream(), out);
         errReader.join();
 
@@ -56,10 +66,17 @@ final class Proc {
     }
 
     private static void drain(java.io.InputStream in, StringBuilder target) {
+        drain(in, target, false);
+    }
+
+    private static void drain(java.io.InputStream in, StringBuilder target, boolean echo) {
         try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String line;
             while ((line = r.readLine()) != null) {
                 target.append(line).append('\n');
+                if (echo) {
+                    System.err.println(line);
+                }
             }
         } catch (IOException e) {
             // Stream wurde geschlossen, Rest ignorieren

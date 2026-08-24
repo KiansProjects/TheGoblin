@@ -17,7 +17,7 @@ public final class Goblin {
 
             Befehle:
               goblin series <url> <name> [optionen]   Video in Episoden zerlegen
-              goblin chapters <url>                   nur die erkannten Kapitel anzeigen
+              goblin chapters <url> [--verbose]       nur die erkannten Kapitel anzeigen
 
             Optionen fuer 'series':
               -o, --out <pfad>        Zielverzeichnis (Standard: aktuelles Verzeichnis)
@@ -29,6 +29,7 @@ public final class Goblin {
                   --reencode          exakt schneiden statt auf Keyframes zu runden
                   --keep              das komplette Video nach dem Schneiden behalten
                   --dry-run           nur zeigen, was passieren wuerde
+              -v, --verbose           yt-dlp-Kommando und dessen Meldungen zeigen
 
             Umgebung:
               TMDB_API_KEY            fuer Serien-ID und Artwork (optional)
@@ -66,12 +67,19 @@ public final class Goblin {
 
     private static int chapters(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Aufruf: goblin chapters <url>");
+            System.err.println("Aufruf: goblin chapters <url> [--verbose]");
             return 2;
         }
         requireTools(false);
 
-        VideoMeta meta = YtDlp.metadata(args[1]);
+        boolean verbose = false;
+        for (int i = 2; i < args.length; i++) {
+            if (args[i].equals("--verbose") || args[i].equals("-v")) {
+                verbose = true;
+            }
+        }
+
+        VideoMeta meta = YtDlp.metadata(args[1], verbose);
         List<Chapter> found = resolveChapters(meta);
 
         if (found.isEmpty()) {
@@ -111,6 +119,7 @@ public final class Goblin {
         boolean reencode = false;
         boolean keep = false;
         boolean dryRun = false;
+        boolean verbose = false;
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
@@ -123,6 +132,7 @@ public final class Goblin {
                 case "--reencode" -> reencode = true;
                 case "--keep" -> keep = true;
                 case "--dry-run" -> dryRun = true;
+                case "--verbose", "-v" -> verbose = true;
                 default -> {
                     System.err.println("Unbekannte Option: " + args[i]);
                     return 2;
@@ -134,7 +144,7 @@ public final class Goblin {
 
         // 1. Metadaten und Kapitel
         System.out.println("Metadaten abrufen ...");
-        VideoMeta meta = YtDlp.metadata(url);
+        VideoMeta meta = YtDlp.metadata(url, verbose);
         List<Chapter> parts = resolveChapters(meta);
 
         if (parts.isEmpty()) {
