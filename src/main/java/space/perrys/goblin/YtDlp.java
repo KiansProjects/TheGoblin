@@ -35,7 +35,10 @@ final class YtDlp {
      */
     static VideoMeta metadata(String url, boolean verbose) throws IOException, InterruptedException {
         List<String> cmd = base(verbose);
-        cmd.addAll(List.of("--skip-download", "-J", url));
+        // Kapitel stehen in den Metadaten, nicht in den Streams. Ohne dieses Flag
+        // bricht yt-dlp ab, sobald YouTube keine brauchbaren Format-URLs liefert
+        // (SABR, fehlende PO-Tokens) - obwohl alles Noetige schon da waere.
+        cmd.addAll(List.of("--ignore-no-formats-error", "--skip-download", "-J", url));
 
         if (verbose) {
             System.out.println("$ " + String.join(" ", cmd));

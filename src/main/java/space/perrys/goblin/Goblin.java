@@ -195,7 +195,7 @@ public final class Goblin {
         Files.createDirectories(seasonDir);
 
         // 4. Video einmal komplett laden
-        Path work = Files.createTempDirectory("goblin-");
+        Path work = Files.createTempDirectory(workRoot(), "goblin-");
         Path source;
         try {
             System.out.println("Video laden ...");
@@ -233,6 +233,21 @@ public final class Goblin {
     }
 
     // ------------------------------------------------------------------
+
+    /**
+     * Arbeitsverzeichnis fuer den Download. Bewusst NICHT /tmp: in einem
+     * Wings-Container ist das ein tmpfs mit wenigen hundert Megabyte, und ein
+     * Video plus Tonspur plus gemuxte Datei sprengt das sofort. Stattdessen das
+     * Serververzeichnis, das dem Disk-Limit des Servers unterliegt.
+     */
+    private static Path workRoot() throws IOException {
+        String override = System.getenv("GOBLIN_TMP");
+        Path root = (override == null || override.isBlank())
+                ? Path.of(".").toAbsolutePath().normalize()
+                : Path.of(override);
+        Files.createDirectories(root);
+        return root;
+    }
 
     /** YouTube-Kapitel haben Vorrang, sonst die Beschreibung durchsuchen. */
     private static List<Chapter> resolveChapters(VideoMeta meta) {

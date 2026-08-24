@@ -88,6 +88,14 @@ Bevorzugt wird H.264 mit AAC in mp4. YouTube liefert sonst VP9 oder AV1 in webm,
 - `--map` mit einer Datei, die Kapitelnummer auf Episodennummer abbildet, für Fälle wo TMDb anders zählt als das Video
 - Wenn du es als echtes Kommando willst: Quarkus mit `quarkus-picocli` und Native Image gibt dir ein Binary ohne JVM-Startzeit
 
+## Speicherplatz
+
+Der Download läuft über ein Arbeitsverzeichnis, das TheGoblin im aktuellen Verzeichnis anlegt — nicht in `/tmp`. In einem Wings-Container ist `/tmp` ein tmpfs mit wenigen hundert Megabyte, und Video plus Tonspur plus gemuxte Datei sprengen das sofort.
+
+Rechne mit etwa dem Dreifachen der Videogröße als freiem Platz: getrennte Video- und Audiodatei, die gemuxte mp4, dazu die geschnittenen Episoden. Bei einem 170-MB-Video also rund 700 MB.
+
+Mit `GOBLIN_TMP` lässt sich ein anderes Arbeitsverzeichnis setzen, etwa auf einem Mount mit mehr Platz.
+
 ## Wenn YouTube blockt
 
 Manche Videos verlangen einen bestimmten Player-Client oder eine angemeldete Sitzung. Erkennbar daran, dass das Video im Browser läuft, yt-dlp aber `This video is not available` meldet.
