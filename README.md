@@ -1,47 +1,49 @@
 # TheGoblin
 
-Zerlegt ein YouTube-Video anhand seiner Kapitel in einzelne Episodendateien und legt sie so ab, wie Jellyfins Scanner sie erwartet.
+Splits a YouTube video into individual episode files based on its chapters and stores them as expected by Jellyfin's scanner.
 
-## Voraussetzungen
+## Prerequisites
 
-- Java 21+
-- `yt-dlp` und `ffmpeg` im PATH
+* Java 21+
+* `yt-dlp` and `ffmpeg` in your PATH
 
-Das Projekt hat keine externen Java-Dependencies — `./build.sh` reicht, Maven ist optional (`mvn package`).
+The project has no external Java dependencies — `./build.sh` is sufficient, Maven is optional (`mvn package`).
 
 ## Installation
 
 ```bash
 ./build.sh
 sudo ln -s "$PWD/goblin" /usr/local/bin/goblin
+
 ```
 
-## Benutzung
+## Usage
 
 ```bash
-# Erst schauen, was drin ist
+# Check contents first
 goblin chapters https://www.youtube.com/watch?v=...
 
-# Dann zerlegen
+# Then split
 goblin series https://www.youtube.com/watch?v=... "Ninjago" \
-    --out /srv/media/serien --season 1
+    --out /srv/media/shows --season 1
+
 ```
 
-### Optionen
+### Options
 
-| Option | Bedeutung |
-|---|---|
-| `-o, --out <pfad>` | Zielverzeichnis, Standard aktuelles Verzeichnis |
-| `-s, --season <n>` | Staffelnummer, Standard 1 |
-| `-e, --start-episode <n>` | Nummer der ersten Episode, Standard 1 |
-| `--year <jahr>` | Erscheinungsjahr, überschreibt TMDb |
-| `--tmdb-id <id>` | Serien-ID fest vorgeben statt zu suchen |
-| `--no-tmdb` | keine Datenbankabfrage, kein Artwork |
-| `--reencode` | exakt schneiden statt auf Keyframes zu runden |
-| `--keep` | das komplette Video nach dem Schneiden behalten |
-| `--dry-run` | nur zeigen, was passieren würde |
+| Option | Description |
+| --- | --- |
+| `-o, --out <path>` | Output directory, defaults to current directory |
+| `-s, --season <n>` | Season number, defaults to 1 |
+| `-e, --start-episode <n>` | First episode number, defaults to 1 |
+| `--year <year>` | Release year, overrides TMDb |
+| `--tmdb-id <id>` | Specify series ID manually instead of searching |
+| `--no-tmdb` | Skip database lookup and artwork download |
+| `--reencode` | Cut frame-accurately instead of rounding to keyframes |
+| `--keep` | Keep the full video file after cutting |
+| `--dry-run` | Only show what would happen |
 
-## Ergebnis
+## Output Structure
 
 ```
 Ninjago (2011) [tmdbid-12345]/
@@ -50,66 +52,69 @@ Ninjago (2011) [tmdbid-12345]/
   Season 01/
     Ninjago S01E01 - Way of the Ninja.mp4
     Ninjago S01E02 - The Golden Weapon.mp4
+
 ```
 
-## Serien-Datenbank
+## Series Database
 
-Mit einem kostenlosen TMDb-Key holt TheGoblin Serien-ID, Erstausstrahlungsjahr, Poster und Hintergrundbild:
+Using a free TMDb API key, TheGoblin retrieves the series ID, release year, poster, and background image:
 
 ```bash
-export TMDB_API_KEY=dein_key
+export TMDB_API_KEY=your_key
+
 ```
 
-Die ID landet im Ordnernamen, damit Jellyfin die Serie nicht selbst erraten muss. Ohne Key läuft alles andere unverändert.
+The ID is added to the folder name so Jellyfin doesn't have to guess the series identity. Without a key, all other features work unchanged.
 
-## Wie die Kapitel gefunden werden
+## How Chapters Are Detected
 
-1. Hat YouTube die Zeitstempel als Kapitel erkannt, nutzt `yt-dlp` sie direkt — das ist der zuverlässige Fall.
-2. Sonst wird die Beschreibung durchsucht. Zuerst nur Zeilen, die mit einem Zeitstempel beginnen (die übliche Kapitelliste). Findet das nichts, wird lockerer gesucht, etwa `Episode 1 - Way of the Ninja - 0:00`.
+1. If YouTube recognized the timestamps as chapters, `yt-dlp` uses them directly — this is the most reliable method.
+2. Otherwise, the description is parsed. It looks first for lines starting with a timestamp (the standard chapter list format). If none are found, it performs a looser search, e.g., `Episode 1 - Way of the Ninja - 0:00`.
 
-Zeilen wie `New videos at 10:00 AM every Saturday` oder `Live um 20:15 Uhr` werden aussortiert — sonst hättest du eine Episode namens „AM every Saturday" in der Mediathek.
+Lines like `New videos at 10:00 AM every Saturday` or `Live um 20:15 Uhr` are filtered out — otherwise, you would end up with an episode named "AM every Saturday" in your media library.
 
-Der letzte Abschnitt läuft immer bis zum Videoende. Bei Sammelvideos mit Abspann oder Werbung am Schluss lohnt sich vorher ein `goblin chapters`.
+The final section always runs until the end of the video. For compilations that include end credits or ads at the very end, running `goblin chapters` beforehand is recommended.
 
-## Schnittgenauigkeit
+## Cutting Precision
 
-Standardmäßig wird ohne Neukodierung geschnitten (`-c copy`). Das dauert Sekunden statt Minuten, aber ffmpeg kann nur an Keyframes schneiden — die Grenzen liegen dadurch bis zu ein paar Sekunden daneben, und der Anfang kann kurz einfrieren.
+By default, cutting is performed without re-encoding (`-c copy`). This takes seconds instead of minutes, but ffmpeg can only cut on keyframes — boundaries may be off by a few seconds, and the beginning of a clip might briefly freeze.
 
-Bei aneinandergeschnittenen Episoden fällt das kaum auf. Wenn es stört: `--reencode`. Dann sitzt der Schnitt exakt, kostet aber CPU-Zeit und einen Hauch Qualität.
+For back-to-back episodes, this is usually unnoticeable. If it bothers you, use `--reencode`. This guarantees precise cuts at the cost of CPU time and a slight loss in quality.
 
-## Download-Format
+## Download Format
 
-Bevorzugt wird H.264 mit AAC in mp4. YouTube liefert sonst VP9 oder AV1 in webm, was viele Clients nicht direkt abspielen — dann transcodiert der Server, und bei AV1 mangels Hardware-Decoder komplett auf der CPU.
+The tool prefers H.264 with AAC inside MP4. Otherwise, YouTube defaults to VP9 or AV1 in WebM, which many client devices cannot play natively — forcing the media server to transcode (and for AV1 without a hardware decoder, entirely on the CPU).
 
-## Ideen für später
+## Future Ideas
 
-- `goblin playlist <url>` für ganze Playlists, eine Episode pro Video statt pro Kapitel
-- Erkennung, ob eine Episode schon existiert, statt blind zu überschreiben
-- `--map` mit einer Datei, die Kapitelnummer auf Episodennummer abbildet, für Fälle wo TMDb anders zählt als das Video
-- Wenn du es als echtes Kommando willst: Quarkus mit `quarkus-picocli` und Native Image gibt dir ein Binary ohne JVM-Startzeit
+* `goblin playlist <url>` for entire playlists, mapping one episode per video instead of per chapter
+* Detecting existing episodes to avoid blindly overwriting them
+* `--map` with a file mapping chapter numbers to episode numbers, for cases where TMDb ordering differs from the video
+* Native binary option: Quarkus with `quarkus-picocli` and Native Image for instant execution without JVM startup time
 
-## Speicherplatz
+## Disk Space Requirements
 
-Der Download läuft über ein Arbeitsverzeichnis, das TheGoblin im aktuellen Verzeichnis anlegt — nicht in `/tmp`. In einem Wings-Container ist `/tmp` ein tmpfs mit wenigen hundert Megabyte, und Video plus Tonspur plus gemuxte Datei sprengen das sofort.
+Downloads are processed in a working directory created by TheGoblin in the current working directory — not in `/tmp`. In Wings containers, `/tmp` is often a tmpfs with only a few hundred megabytes, which fills up immediately when handling separate audio, video, and muxed files.
 
-Rechne mit etwa dem Dreifachen der Videogröße als freiem Platz: getrennte Video- und Audiodatei, die gemuxte mp4, dazu die geschnittenen Episoden. Bei einem 170-MB-Video also rund 700 MB.
+Plan for roughly three times the raw video size in free space: separate video and audio streams, the muxed MP4, and the final extracted episode files. For example, a 170 MB video will require around 700 MB of temp space.
 
-Mit `GOBLIN_TMP` lässt sich ein anderes Arbeitsverzeichnis setzen, etwa auf einem Mount mit mehr Platz.
+Use `GOBLIN_TMP` to specify an alternative temporary directory on a mount with more space.
 
-## Wenn YouTube blockt
+## Troubleshooting YouTube Blocks
 
-Manche Videos verlangen einen bestimmten Player-Client oder eine angemeldete Sitzung. Erkennbar daran, dass das Video im Browser läuft, yt-dlp aber `This video is not available` meldet.
+Some videos require a specific player client or an authenticated session. You can spot this if the video plays fine in a web browser, but yt-dlp returns `This video is not available`.
 
-Zwei Stellschrauben, beide ohne Codeänderung:
+Two workarounds are available without needing code changes:
 
-**Zusatzargumente** über die Umgebungsvariable `YTDLP_ARGS` — wird an jeden yt-dlp-Aufruf angehängt:
+**Additional arguments** via the `YTDLP_ARGS` environment variable — passed directly to every yt-dlp invocation:
 
 ```
 --extractor-args "youtube:player_client=web_safari,default"
+
 ```
 
-Zum Nachsehen, was tatsächlich passiert: `chapters <url> --verbose`. Das druckt das vollständige yt-dlp-Kommando und reicht dessen Meldungen durch, statt sie mit `--no-warnings` zu schlucken. Damit siehst du, ob deine Zusatzargumente ankommen und welche Player-Clients yt-dlp probiert hat.
+To see what is happening under the hood, run `chapters <url> --verbose`. This prints the full yt-dlp command and forwards its logs instead of suppressing them with `--no-warnings`. This makes it easy to verify whether your extra arguments are applied and which player clients yt-dlp tried.
 
-**Cookies**: liegt eine `cookies.txt` im Arbeitsverzeichnis, benutzt TheGoblin sie automatisch. Export im Netscape-Format, z.B. über eine Browser-Erweiterung.
+**Cookies**: If a `cookies.txt` file exists in the working directory, TheGoblin uses it automatically. You can export this file in Netscape format using a browser extension.
 
-Eine Cookie-Datei ist eine angemeldete Sitzung deines Kontos — behandle sie wie ein Passwort, und rechne damit, dass YouTube automatisiertes Herunterladen mit einem Konto ungern sieht. Für den Anfang lieber erst die Player-Client-Variante probieren.
+*Note: A cookie file represents an active login session for your account — treat it like a password, and keep in mind that YouTube may flag accounts used for automated downloading. It is recommended to try the player-client workaround first.*
