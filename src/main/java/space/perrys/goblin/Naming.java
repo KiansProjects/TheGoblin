@@ -40,9 +40,10 @@ final class Naming {
     }
 
     /** z.B. "Ninjago S01E01 - Way of the Ninja.mp4" */
-    static String episodeFile(String seriesName, int season, int episode, String chapterTitle) {
+    static String episodeFile(String seriesName, int season, int episode, String chapterTitle, String ext) {
         String base = String.format("%s S%02dE%02d", sanitize(seriesName), season, episode);
         String title = sanitize(chapterTitle);
-        return title.isEmpty() ? base + ".mp4" : base + " - " + title + ".mp4";
+        String name = title.isEmpty() ? base : base + " - " + title;
+        return name + "." + ext;
     }
 }

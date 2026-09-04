@@ -15,8 +15,11 @@ final class YtDlp {
      * waehrend YouTubes Standard (VP9 oder AV1 in webm) den Server zum Transcodieren
      * zwingt.
      */
-    private static final String FORMAT =
+    static final String FORMAT_H264 =
             "bv*[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b";
+
+    /** Beste verfuegbare Qualitaet, egal welcher Codec. Kann VP9 oder AV1 sein. */
+    static final String FORMAT_BEST = "bv*+ba/b";
 
     /** Wird automatisch benutzt, wenn die Datei im Arbeitsverzeichnis liegt. */
     private static final Path COOKIES = Path.of("cookies.txt");
@@ -65,20 +68,28 @@ final class YtDlp {
                 List.copyOf(chapters));
     }
 
+    /** Zeigt alle verfuegbaren Formate des Videos an. */
+    static void listFormats(String url) throws IOException, InterruptedException {
+        List<String> cmd = base();
+        cmd.addAll(List.of("--ignore-no-formats-error", "-F", url));
+        Proc.inherit(cmd);
+    }
+
     /** Laedt das komplette Video nach {@code target} (ohne Endung, yt-dlp haengt sie an). */
-    static Path download(String url, Path targetWithoutExtension) throws IOException, InterruptedException {
+    static Path download(String url, Path targetWithoutExtension, String format, String container)
+            throws IOException, InterruptedException {
         List<String> cmd = base();
         cmd.addAll(List.of(
-                "-f", FORMAT,
-                "--merge-output-format", "mp4",
+                "-f", format,
+                "--merge-output-format", container,
                 "-o", targetWithoutExtension + ".%(ext)s",
                 url));
 
         Proc.inherit(cmd);
 
-        Path mp4 = Path.of(targetWithoutExtension + ".mp4");
-        if (Files.exists(mp4)) {
-            return mp4;
+        Path merged = Path.of(targetWithoutExtension + "." + container);
+        if (Files.exists(merged)) {
+            return merged;
         }
 
         // Fallback: yt-dlp konnte nicht nach mp4 muxen

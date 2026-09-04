@@ -18,6 +18,7 @@ public final class Goblin {
             Befehle:
               goblin series <url> <name> [optionen]   Video in Episoden zerlegen
               goblin chapters <url> [--verbose]       nur die erkannten Kapitel anzeigen
+              goblin chapters <url> --formats         verfuegbare Formate auflisten
 
             Optionen fuer 'series':
               -o, --out <pfad>        Zielverzeichnis (Standard: aktuelles Verzeichnis)
@@ -26,6 +27,9 @@ public final class Goblin {
                   --year <jahr>       Erscheinungsjahr, ueberschreibt TMDb
                   --tmdb-id <id>      TMDb-ID fest vorgeben statt zu suchen
                   --no-tmdb           weder ID noch Artwork holen
+                  --best              beste Qualitaet statt H.264, landet in mkv
+              -f, --format <sel>      eigener yt-dlp-Formatselektor
+                  --container <ext>   Zielcontainer, Standard mp4
                   --reencode          exakt schneiden statt auf Keyframes zu runden
                   --keep              das komplette Video nach dem Schneiden behalten
                   --dry-run           nur zeigen, was passieren wuerde
@@ -73,10 +77,18 @@ public final class Goblin {
         requireTools(false);
 
         boolean verbose = false;
+        boolean formats = false;
         for (int i = 2; i < args.length; i++) {
-            if (args[i].equals("--verbose") || args[i].equals("-v")) {
-                verbose = true;
+            switch (args[i]) {
+                case "--verbose", "-v" -> verbose = true;
+                case "--formats", "-F" -> formats = true;
+                default -> { }
             }
+        }
+
+        if (formats) {
+            YtDlp.listFormats(args[1]);
+            return 0;
         }
 
         VideoMeta meta = YtDlp.metadata(args[1], verbose);
@@ -120,6 +132,8 @@ public final class Goblin {
         boolean keep = false;
         boolean dryRun = false;
         boolean verbose = false;
+        String format = YtDlp.FORMAT_H264;
+        String container = "mp4";
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
@@ -133,6 +147,12 @@ public final class Goblin {
                 case "--keep" -> keep = true;
                 case "--dry-run" -> dryRun = true;
                 case "--verbose", "-v" -> verbose = true;
+                case "--best" -> {
+                    format = YtDlp.FORMAT_BEST;
+                    container = "mkv";
+                }
+                case "--format", "-f" -> format = args[++i];
+                case "--container" -> container = args[++i];
                 default -> {
                     System.err.println("Unbekannte Option: " + args[i]);
                     return 2;
@@ -183,7 +203,7 @@ public final class Goblin {
         System.out.println(seasonDir);
         for (int i = 0; i < parts.size(); i++) {
             System.out.println("  " + Naming.episodeFile(
-                    name, season, startEpisode + i, parts.get(i).title()));
+                    name, season, startEpisode + i, parts.get(i).title(), container));
         }
         System.out.println();
 
@@ -199,20 +219,20 @@ public final class Goblin {
         Path source;
         try {
             System.out.println("Video laden ...");
-            source = YtDlp.download(url, work.resolve("source"));
+            source = YtDlp.download(url, work.resolve("source"), format, container);
 
             // 5. Schneiden
             System.out.println("Schneiden ...");
             for (int i = 0; i < parts.size(); i++) {
                 Chapter c = parts.get(i);
                 Path target = seasonDir.resolve(
-                        Naming.episodeFile(name, season, startEpisode + i, c.title()));
+                        Naming.episodeFile(name, season, startEpisode + i, c.title(), container));
                 Ffmpeg.cut(source, c, target, reencode);
                 System.out.println("  " + target.getFileName());
             }
 
             if (keep) {
-                Path kept = seriesDir.resolve("source-" + meta.id() + ".mp4");
+                Path kept = seriesDir.resolve("source-" + meta.id() + "." + container);
                 Files.move(source, kept);
                 System.out.println("Quelle behalten: " + kept);
             }
