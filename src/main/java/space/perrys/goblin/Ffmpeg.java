@@ -13,9 +13,11 @@ final class Ffmpeg {
     }
 
     /**
-     * @param reencode false schneidet ohne Neukodierung (Sekunden, aber die Schnitte
-     *                 rasten auf den naechsten Keyframe ein). true trifft die Zeit
-     *                 exakt, kostet dafuer CPU-Zeit und minimal Qualitaet.
+     * @param reencode false schneidet ohne Neukodierung. Schnell, aber der Start
+     *                 rastet auf den vorhergehenden Keyframe ein - der Abschnitt
+     *                 wird dadurch bis zu eine Keyframe-Distanz laenger als
+     *                 angegeben. true trifft die Zeit framegenau, kostet dafuer
+     *                 Rechenzeit und minimal Qualitaet.
      */
     static void cut(Path input, Chapter chapter, Path output, boolean reencode)
             throws IOException, InterruptedException {
@@ -27,9 +29,11 @@ final class Ffmpeg {
                 "-t", fmt(chapter.duration())));
 
         if (reencode) {
+            // Nur das Bild neu kodieren. Der Ton laesst sich framegenau kopieren,
+            // eine zweite AAC-Generation waere reiner Qualitaetsverlust.
             cmd.addAll(List.of(
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-                    "-c:a", "aac", "-b:a", "192k"));
+                    "-c:a", "copy"));
         } else {
             cmd.addAll(List.of("-c", "copy", "-avoid_negative_ts", "make_zero"));
         }

@@ -73,9 +73,62 @@ Der letzte Abschnitt läuft immer bis zum Videoende. Bei Sammelvideos mit Abspan
 
 ## Schnittgenauigkeit
 
-Standardmäßig wird ohne Neukodierung geschnitten (`-c copy`). Das dauert Sekunden statt Minuten, aber ffmpeg kann nur an Keyframes schneiden — die Grenzen liegen dadurch bis zu ein paar Sekunden daneben, und der Anfang kann kurz einfrieren.
+Standardmäßig wird ohne Neukodierung geschnitten (`-c copy`). Das dauert Sekunden statt Minuten, hat aber eine Eigenart, die man kennen muss: ein Videostream ist nur ab einem Keyframe dekodierbar, also beginnt jeder Abschnitt am Keyframe **vor** der gewünschten Zeit. Der Abschnitt wird dadurch länger als angegeben — bei YouTube typischerweise um bis zu 2 Sekunden, weil dort etwa alle 2 Sekunden ein Keyframe sitzt.
 
-Bei aneinandergeschnittenen Episoden fällt das kaum auf. Wenn es stört: `--reencode`. Dann sitzt der Schnitt exakt, kostet aber CPU-Zeit und einen Hauch Qualität.
+Gemessen an einem Testvideo mit Keyframes im 2-Sekunden-Raster, Schnitt ab 11,0 s über 5,0 s:
+
+| Modus | Ergebnis |
+|---|---|
+| `-c copy` | 6,08 s |
+| `--reencode` | 5,00 s |
+
+Der erste Abschnitt ist immer korrekt, weil er bei 0:00 anfängt und dort ein Keyframe liegt. Es geht nichts verloren, es ist nur vorne der Schluss des vorherigen Abschnitts mit dran.
+
+Wenn das stört: `--reencode`. Dann sitzt der Schnitt framegenau. Nur das Bild wird neu kodiert, der Ton wird kopiert.
+
+## Grenzen automatisch finden
+
+Zeitstempel in Beschreibungen sind von Hand getippt und liegen oft ein bis zwei Sekunden daneben. Statt jeden nachzumessen:
+
+```
+series <url> "Name" --snap --reencode
+```
+
+TheGoblin sucht dann in einem Fenster um jeden Zeitstempel herum nach dem tatsächlichen Bildwechsel. Zwei Signale, in dieser Reihenfolge:
+
+1. **Schwarzbild** — bei Episodenübergängen fast immer vorhanden. Der Schnitt landet am Ende des schwarzen Abschnitts, also am ersten Bild der neuen Folge.
+2. **Harter Szenenwechsel** — falls kein Schwarzbild da ist.
+
+Findet er nichts, bleibt der ursprüngliche Zeitstempel stehen. Im Log steht pro Grenze, was gefunden wurde:
+
+```
+Grenzen suchen (Fenster 5 s) ...
+  11:00 -> 11:02  (+2.31 s, Schwarzbild)
+  22:00 -> 22:01  (+1.04 s, Szenenwechsel)
+```
+
+Die Fensterbreite lässt sich angeben: `--snap 10` sucht ±10 Sekunden. Größer heißt mehr Toleranz gegenüber schlechten Zeitstempeln, aber auch mehr Risiko, einen Szenenwechsel *innerhalb* der Folge zu erwischen.
+
+Der erste Abschnitt bleibt immer bei 0:00.
+
+**Zusammen mit `--reencode` benutzen.** Ohne rastet der Schnitt trotzdem auf den Keyframe davor ein, und die genaue Grenze wäre wieder verschenkt.
+
+## Eigene Zeitstempel
+
+Stimmen die Kapitel im Video nicht, lässt sich eine eigene Liste mitgeben — gleiches Format wie eine YouTube-Beschreibung, eine Zeile je Abschnitt:
+
+```
+0:00 Way of the Ninja
+11:00 The Golden Weapon
+22:00 King of Shadows
+33:00 Weapons of Destiny
+```
+
+```
+series <url> "Name" --chapters kapitel.txt
+```
+
+Liegen alle Zeitstempel gleichmäßig daneben, reicht `--offset <sekunden>`. Der verschiebt jede Grenze ab der zweiten; die erste bleibt bei 0, damit der Anfang nicht abgeschnitten wird.
 
 ## Download-Format
 

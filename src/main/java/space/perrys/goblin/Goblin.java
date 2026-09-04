@@ -30,6 +30,10 @@ public final class Goblin {
                   --best              beste Qualitaet statt H.264, landet in mkv
               -f, --format <sel>      eigener yt-dlp-Formatselektor
                   --container <ext>   Zielcontainer, Standard mp4
+                  --chapters <datei>  eigene Zeitstempel statt der aus dem Video
+                  --offset <sekunden> alle Grenzen ab der zweiten verschieben
+                  --snap [sekunden]   Grenzen auf den echten Bildwechsel ziehen
+                                      (Suchfenster, Standard 5)
                   --reencode          exakt schneiden statt auf Keyframes zu runden
                   --keep              das komplette Video nach dem Schneiden behalten
                   --dry-run           nur zeigen, was passieren wuerde
@@ -134,6 +138,9 @@ public final class Goblin {
         boolean verbose = false;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
+        Path chapterFile = null;
+        double offset = 0;
+        double snapWindow = 0;
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
@@ -152,6 +159,11 @@ public final class Goblin {
                     container = "mkv";
                 }
                 case "--format", "-f" -> format = args[++i];
+                case "--chapters" -> chapterFile = Path.of(args[++i]);
+                case "--offset" -> offset = Double.parseDouble(args[++i]);
+                case "--snap" -> snapWindow = (i + 1 < args.length && !args[i + 1].startsWith("-"))
+                        ? Double.parseDouble(args[++i])
+                        : 5.0;
                 case "--container" -> container = args[++i];
                 default -> {
                     System.err.println("Unbekannte Option: " + args[i]);
@@ -165,7 +177,23 @@ public final class Goblin {
         // 1. Metadaten und Kapitel
         System.out.println("Metadaten abrufen ...");
         VideoMeta meta = YtDlp.metadata(url, verbose);
-        List<Chapter> parts = resolveChapters(meta);
+
+        List<Chapter> parts;
+        if (chapterFile != null) {
+            parts = ChapterParser.parse(Files.readString(chapterFile), meta.duration());
+            if (parts.isEmpty()) {
+                System.err.println("Aus " + chapterFile + " liessen sich keine Zeitstempel lesen.");
+                return 1;
+            }
+            System.out.println("Kapitel aus " + chapterFile);
+        } else {
+            parts = resolveChapters(meta);
+        }
+
+        if (offset != 0) {
+            parts = shift(parts, offset, meta.duration());
+            System.out.printf("Versatz: %+.1f s ab dem zweiten Abschnitt%n", offset);
+        }
 
         if (parts.isEmpty()) {
             System.err.println("""
@@ -221,7 +249,12 @@ public final class Goblin {
             System.out.println("Video laden ...");
             source = YtDlp.download(url, work.resolve("source"), format, container);
 
-            // 5. Schneiden
+            // 5. Grenzen auf den tatsaechlichen Bildwechsel ziehen
+            if (snapWindow > 0) {
+                parts = snap(source, parts, snapWindow, meta.duration());
+            }
+
+            // 6. Schneiden
             System.out.println("Schneiden ...");
             for (int i = 0; i < parts.size(); i++) {
                 Chapter c = parts.get(i);
@@ -242,7 +275,7 @@ public final class Goblin {
             }
         }
 
-        // 6. Artwork
+        // 7. Artwork
         if (tmdb != null && series != null) {
             tmdb.downloadArtwork(series, seriesDir);
         }
@@ -267,6 +300,67 @@ public final class Goblin {
                 : Path.of(override);
         Files.createDirectories(root);
         return root;
+    }
+
+    /**
+     * Zieht jede Abschnittsgrenze auf den Bildwechsel, der ihr am naechsten
+     * liegt. Der erste Abschnitt bleibt bei 0.
+     */
+    private static List<Chapter> snap(Path video, List<Chapter> parts, double window, double duration) {
+        System.out.printf("Grenzen suchen (Fenster %.0f s) ...%n", window);
+
+        List<Double> starts = new ArrayList<>();
+        starts.add(parts.get(0).start());
+
+        for (int i = 1; i < parts.size(); i++) {
+            double wanted = parts.get(i).start();
+            CutDetect.Result found = CutDetect.nearest(video, wanted, window);
+
+            String note = switch (found.source()) {
+                case BLACK -> "Schwarzbild";
+                case SCENE -> "Szenenwechsel";
+                case NONE -> "nichts gefunden, bleibt";
+            };
+            System.out.printf("  %s -> %s  (%+.2f s, %s)%n",
+                    Chapter.timecode(wanted), Chapter.timecode(found.time()),
+                    found.time() - wanted, note);
+
+            starts.add(found.time());
+        }
+
+        List<Chapter> snapped = new ArrayList<>();
+        for (int i = 0; i < parts.size(); i++) {
+            double end = (i + 1 < starts.size()) ? starts.get(i + 1) : duration;
+            if (end - starts.get(i) < 1.0) {
+                continue;
+            }
+            snapped.add(new Chapter(starts.get(i), end, parts.get(i).title()));
+        }
+        return snapped;
+    }
+
+    /**
+     * Verschiebt alle Abschnittsgrenzen ausser der allerersten. Der erste
+     * Abschnitt startet immer bei 0 - sonst wuerde der Anfang des Videos
+     * verlorengehen. Gedacht fuer den Fall, dass die Zeitstempel in der
+     * Beschreibung durchgehend ein paar Sekunden zu frueh liegen.
+     */
+    private static List<Chapter> shift(List<Chapter> parts, double offset, double duration) {
+        List<Double> starts = new ArrayList<>();
+        for (int i = 0; i < parts.size(); i++) {
+            double start = (i == 0) ? parts.get(0).start() : parts.get(i).start() + offset;
+            starts.add(Math.max(0, Math.min(start, duration)));
+        }
+
+        List<Chapter> shifted = new ArrayList<>();
+        for (int i = 0; i < parts.size(); i++) {
+            double end = (i + 1 < starts.size()) ? starts.get(i + 1) : duration;
+            if (end - starts.get(i) < 1.0) {
+                continue;
+            }
+            shifted.add(new Chapter(starts.get(i), end, parts.get(i).title()));
+        }
+        return shifted;
     }
 
     /** YouTube-Kapitel haben Vorrang, sonst die Beschreibung durchsuchen. */

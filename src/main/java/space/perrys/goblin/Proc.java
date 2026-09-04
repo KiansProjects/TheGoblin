@@ -42,6 +42,19 @@ final class Proc {
         return out.toString();
     }
 
+    /**
+     * Fuehrt das Kommando aus und gibt stdout und stderr zusammen zurueck.
+     * Wirft nicht bei Exitcode != 0 - fuer Analysen, deren Ergebnis auch dann
+     * brauchbar ist.
+     */
+    static String captureCombined(List<String> command) throws IOException, InterruptedException {
+        Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
+        StringBuilder out = new StringBuilder();
+        drain(p.getInputStream(), out);
+        p.waitFor();
+        return out.toString();
+    }
+
     /** Fuehrt das Kommando aus und reicht die Ausgabe direkt an die Konsole durch. */
     static void inherit(List<String> command) throws IOException, InterruptedException {
         Process p = new ProcessBuilder(command).inheritIO().start();
