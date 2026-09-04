@@ -19,6 +19,8 @@ public final class Goblin {
               goblin series <url> <name> [optionen]   Video in Episoden zerlegen
               goblin chapters <url> [--verbose]       nur die erkannten Kapitel anzeigen
               goblin chapters <url> --formats         verfuegbare Formate auflisten
+              goblin playlist <url> <name>            fertige series-Zeilen erzeugen
+              goblin chapters <url> --playlist <name> dasselbe ueber 'chapters'
 
             Optionen fuer 'series':
               -o, --out <pfad>        Zielverzeichnis (Standard: aktuelles Verzeichnis)
@@ -61,6 +63,7 @@ public final class Goblin {
         return switch (args[0]) {
             case "series" -> series(args);
             case "chapters" -> chapters(args);
+            case "playlist" -> playlist(args);
             default -> {
                 System.err.println("Unbekannter Befehl: " + args[0]);
                 System.err.print(USAGE);
@@ -82,10 +85,12 @@ public final class Goblin {
 
         boolean verbose = false;
         boolean formats = false;
+        boolean playlistMode = false;
         for (int i = 2; i < args.length; i++) {
             switch (args[i]) {
                 case "--verbose", "-v" -> verbose = true;
                 case "--formats", "-F" -> formats = true;
+                case "--playlist" -> playlistMode = true;
                 default -> { }
             }
         }
@@ -93,6 +98,12 @@ public final class Goblin {
         if (formats) {
             YtDlp.listFormats(args[1]);
             return 0;
+        }
+
+        if (playlistMode) {
+            // Damit die Playlist auch dann geht, wenn der Konsolen-Wrapper
+            // nur 'chapters' durchlaesst.
+            return playlist(new String[] {"playlist", args[1], nameFrom(args)});
         }
 
         VideoMeta meta = YtDlp.metadata(args[1], verbose);
@@ -110,6 +121,59 @@ public final class Goblin {
             System.out.printf("  %2d. %-9s %s  (%.0f s)%n",
                     i + 1, c.timecode(), c.title(), c.duration());
         }
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // goblin playlist <url> <name>
+    // ------------------------------------------------------------------
+
+    /**
+     * Liest eine Playlist und druckt fuer jedes Video eine fertige
+     * series-Zeile. Die Staffelnummer steigt mit der Position - das passt,
+     * wenn ein Video je Staffel in der Playlist liegt. Sonst die Zeilen vor
+     * dem Ausfuehren anpassen.
+     */
+    private static int playlist(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.err.println("Aufruf: goblin playlist <url> <name> [optionen]");
+            return 2;
+        }
+        requireTools(false);
+
+        String url = args[1];
+        String name = args[2];
+
+        String out = "output/serien";
+        int firstSeason = 1;
+        String extra = "--snap --reencode";
+
+        for (int i = 3; i < args.length; i++) {
+            switch (args[i]) {
+                case "-o", "--out" -> out = args[++i];
+                case "-s", "--season" -> firstSeason = Integer.parseInt(args[++i]);
+                case "--extra" -> extra = args[++i];
+                default -> {
+                    System.err.println("Unbekannte Option: " + args[i]);
+                    return 2;
+                }
+            }
+        }
+
+        List<String[]> entries = YtDlp.playlist(url);
+        if (entries.isEmpty()) {
+            System.err.println("Die Playlist enthaelt keine abrufbaren Videos.");
+            return 1;
+        }
+
+        System.out.printf("%d Videos in der Playlist%n%n", entries.size());
+        for (int i = 0; i < entries.size(); i++) {
+            System.out.printf("# %d. %s%n", i + 1, entries.get(i)[1]);
+            System.out.printf("series https://youtu.be/%s \"%s\" --out %s --season %d %s%n%n",
+                    entries.get(i)[0], name, out, firstSeason + i, extra);
+        }
+
+        System.out.println("Zeilen pruefen, dann einzeln ausfuehren.");
         return 0;
     }
 
@@ -300,6 +364,16 @@ public final class Goblin {
                 : Path.of(override);
         Files.createDirectories(root);
         return root;
+    }
+
+    /** Nimmt den ersten Nicht-Options-Parameter nach der URL als Serienname. */
+    private static String nameFrom(String[] args) {
+        for (int i = 2; i < args.length; i++) {
+            if (!args[i].startsWith("-")) {
+                return args[i];
+            }
+        }
+        return "Serie";
     }
 
     /**

@@ -68,6 +68,30 @@ final class YtDlp {
                 List.copyOf(chapters));
     }
 
+    /**
+     * Liest eine Playlist, ohne jedes Video einzeln aufzurufen.
+     * Liefert Paare aus Video-ID und Titel in der Reihenfolge der Playlist.
+     */
+    static List<String[]> playlist(String url) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>(List.of(
+                "yt-dlp", "--no-warnings", "--flat-playlist", "-J"));
+        cmd.addAll(tokenize(System.getenv("YTDLP_ARGS")));
+        cmd.add(url);
+
+        Map<String, Object> root = Json.object(Json.parse(Proc.capture(cmd)));
+
+        List<String[]> out = new ArrayList<>();
+        for (Object o : Json.array(root.get("entries"))) {
+            Map<String, Object> e = Json.object(o);
+            String id = Json.str(e, "id");
+            String title = Json.str(e, "title");
+            if (id != null) {
+                out.add(new String[] {id, title == null ? "" : title});
+            }
+        }
+        return out;
+    }
+
     /** Zeigt alle verfuegbaren Formate des Videos an. */
     static void listFormats(String url) throws IOException, InterruptedException {
         List<String> cmd = base();

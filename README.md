@@ -86,6 +86,26 @@ Der erste Abschnitt ist immer korrekt, weil er bei 0:00 anfängt und dort ein Ke
 
 Wenn das stört: `--reencode`. Dann sitzt der Schnitt framegenau. Nur das Bild wird neu kodiert, der Ton wird kopiert.
 
+## Playlists
+
+Für eine Playlist mit einem Video je Staffel:
+
+```
+playlist <playlist-url> "Ninjago"
+```
+
+Das liest die Playlist flach aus und druckt für jedes Video eine fertige `series`-Zeile, mit hochgezählter Staffelnummer und Titel als Kommentar darüber. Nichts wird dabei heruntergeladen.
+
+Optionen: `--out <pfad>`, `--season <n>` für die erste Staffelnummer, `--extra "<optionen>"` für das, was an jede Zeile angehängt wird (Standard `--snap --reencode`).
+
+Die Zeilen vor dem Ausführen durchsehen — ob die Reihenfolge der Playlist wirklich der Staffelreihenfolge entspricht, weiß nur der Kanal.
+
+Lässt der Konsolen-Wrapper nur `chapters` durch, geht auch:
+
+```
+chapters <playlist-url> --playlist "Ninjago"
+```
+
 ## Grenzen automatisch finden
 
 Zeitstempel in Beschreibungen sind von Hand getippt und liegen oft ein bis zwei Sekunden daneben. Statt jeden nachzumessen:
