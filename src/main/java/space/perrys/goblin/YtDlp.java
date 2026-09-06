@@ -1,6 +1,8 @@
 package space.perrys.goblin;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -73,6 +75,26 @@ final class YtDlp {
      * Liefert Paare aus Video-ID und Titel in der Reihenfolge der Playlist.
      */
     static List<String[]> playlist(String url) throws IOException, InterruptedException {
+        // Erst yt-dlp fragen - nur so bekommen wir die Titel, an denen sich
+        // Staffelgrenzen ablesen lassen. Die IDs aus dem Link sind der
+        // Rueckfall, falls YouTube die Playlist nicht aufloest.
+        try {
+            List<String[]> resolved = viaYtDlp(url);
+            if (!resolved.isEmpty()) {
+                return resolved;
+            }
+        } catch (IOException e) {
+            System.out.println("Playlist liess sich nicht aufloesen, nutze die IDs aus dem Link.");
+        }
+
+        List<String[]> direct = idsFromUrl(url);
+        if (!direct.isEmpty()) {
+            System.out.println("Hinweis: ohne Titel, die Reihenfolge stammt aus dem Link.");
+        }
+        return direct;
+    }
+
+    private static List<String[]> viaYtDlp(String url) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>(List.of(
                 "yt-dlp", "--no-warnings", "--flat-playlist", "-J"));
         cmd.addAll(tokenize(System.getenv("YTDLP_ARGS")));
@@ -87,6 +109,34 @@ final class YtDlp {
             String title = Json.str(e, "title");
             if (id != null) {
                 out.add(new String[] {id, title == null ? "" : title});
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Anonyme Playlists der Form watch_videos?video_ids=a,b,c tragen die IDs
+     * schon im Link. Die lesen wir direkt aus - das ist verlaesslicher als die
+     * Aufloesung ueber YouTube und behaelt die Reihenfolge garantiert bei.
+     */
+    static List<String[]> idsFromUrl(String url) {
+        int at = url.indexOf("video_ids=");
+        if (at < 0) {
+            return List.of();
+        }
+
+        String raw = url.substring(at + "video_ids=".length());
+        int end = raw.indexOf('&');
+        if (end >= 0) {
+            raw = raw.substring(0, end);
+        }
+        raw = URLDecoder.decode(raw, StandardCharsets.UTF_8);
+
+        List<String[]> out = new ArrayList<>();
+        for (String id : raw.split(",")) {
+            String trimmed = id.strip();
+            if (!trimmed.isEmpty()) {
+                out.add(new String[] {trimmed, ""});
             }
         }
         return out;

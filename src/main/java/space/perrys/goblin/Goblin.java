@@ -19,7 +19,14 @@ public final class Goblin {
               goblin series <url> <name> [optionen]   Video in Episoden zerlegen
               goblin chapters <url> [--verbose]       nur die erkannten Kapitel anzeigen
               goblin chapters <url> --formats         verfuegbare Formate auflisten
+              goblin movie <url> <titel> [optionen]   Video als einzelnen Film ablegen
+              goblin series <url> <titel> --movie      dasselbe ueber 'series'
               goblin playlist <url> <name>            fertige series-Zeilen erzeugen
+              goblin playlist <url> <name> --episodes ein Video je Folge laden
+                                                      --from/--to grenzen den
+                                                      Ausschnitt ein,
+                                                      --from-title liest Staffel
+                                                      und Folge aus dem Titel
               goblin chapters <url> --playlist <name> dasselbe ueber 'chapters'
 
             Optionen fuer 'series':
@@ -64,6 +71,7 @@ public final class Goblin {
             case "series" -> series(args);
             case "chapters" -> chapters(args);
             case "playlist" -> playlist(args);
+            case "movie" -> movie(args);
             default -> {
                 System.err.println("Unbekannter Befehl: " + args[0]);
                 System.err.print(USAGE);
@@ -124,6 +132,245 @@ public final class Goblin {
         return 0;
     }
 
+
+    /**
+     * Ein Video je Episode. Anders als bei series wird nichts geschnitten -
+     * jedes Video der Playlist wird einmal geladen und als eine Folge abgelegt.
+     * Vorhandene Dateien werden uebersprungen, damit ein abgebrochener Lauf
+     * fortgesetzt werden kann statt von vorn anzufangen.
+     */
+    private static int episodes(List<String[]> entries, String name, Path out,
+                                int season, int startEpisode, Integer year, Integer tmdbId,
+                                boolean useTmdb, boolean withTitles, boolean fromTitle,
+                                boolean overwrite, boolean dryRun, boolean verbose,
+                                String format, String container) throws Exception {
+
+        requireTools(!dryRun);
+
+        Tmdb.Series series = null;
+        Tmdb tmdb = useTmdb ? Tmdb.fromEnvironment() : null;
+        if (tmdb != null) {
+            try {
+                series = (tmdbId != null) ? tmdb.byId(tmdbId) : tmdb.search(name);
+                if (series != null) {
+                    System.out.printf("TMDb: %s (%s), ID %d%n",
+                            series.name(), series.year(), series.id());
+                }
+            } catch (IOException e) {
+                System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
+            }
+        }
+
+        Integer folderYear = (year != null) ? year : (series != null ? series.year() : null);
+        Integer folderId = (tmdbId != null) ? tmdbId : (series != null ? series.id() : null);
+
+        Path seriesDir = out.resolve(Naming.seriesFolder(name, folderYear, folderId));
+
+        // Zielpfade vorab bestimmen. Mit --from-title kann jeder Eintrag in
+        // einer anderen Staffel landen, deshalb pro Eintrag ein eigener Pfad.
+        // Eintraege ohne erkennbare Nummer werden mit --from-title nicht geraten.
+        // Ein durchnummerierter Rueckfall wuerde mit erkannten Folgen kollidieren
+        // und diese ueberschreiben - lieber melden und der Hand ueberlassen.
+        List<Path> targets = new ArrayList<>();
+        List<String[]> usable = new ArrayList<>();
+        List<String> unparsed = new ArrayList<>();
+        int running = startEpisode;
+
+        for (String[] entry : entries) {
+            int sn = season;
+            int ep;
+
+            if (fromTitle) {
+                var ref = TitleNumbers.parse(entry[1], season);
+                if (ref.isEmpty()) {
+                    unparsed.add(entry[1].isBlank() ? entry[0] : entry[1]);
+                    continue;
+                }
+                sn = ref.get().season();
+                ep = ref.get().episode();
+            } else {
+                ep = running++;
+            }
+
+            usable.add(entry);
+            targets.add(seriesDir.resolve(Naming.seasonFolder(sn))
+                    .resolve(fileFor(name, sn, ep, entry, withTitles, container)));
+        }
+
+        entries = usable;
+
+        System.out.printf("%d Videos -> %s%n%n", entries.size(), seriesDir);
+
+        if (!unparsed.isEmpty()) {
+            System.out.printf("%d ohne erkennbare Nummer, uebersprungen:%n", unparsed.size());
+            for (String t : unparsed) {
+                System.out.println("  " + t);
+            }
+            System.out.println();
+        }
+
+        if (entries.isEmpty()) {
+            System.err.println("Kein Video mit erkennbarer Nummer. Ohne --from-title versuchen.");
+            return 1;
+        }
+
+        if (dryRun) {
+            for (Path t : targets) {
+                System.out.println("  " + seriesDir.relativize(t));
+            }
+            System.out.println();
+            System.out.println("Dry-Run, es wurde nichts geschrieben.");
+            return 0;
+        }
+
+        int done = 0;
+        int skipped = 0;
+        int failed = 0;
+
+        for (int i = 0; i < entries.size(); i++) {
+            Path target = targets.get(i);
+            String fileName = target.getFileName().toString();
+
+            if (!overwrite && Files.exists(target)) {
+                System.out.println("  vorhanden: " + fileName);
+                skipped++;
+                continue;
+            }
+
+            System.out.printf("  [%d/%d] %s%n", i + 1, entries.size(),
+                    seriesDir.relativize(target));
+            try {
+                Files.createDirectories(target.getParent());
+                String stem = fileName.substring(0, fileName.lastIndexOf('.'));
+                YtDlp.download("https://youtu.be/" + entries.get(i)[0],
+                        target.getParent().resolve(stem), format, container);
+                done++;
+            } catch (IOException e) {
+                // Ein kaputtes Video soll die restlichen 50 nicht verhindern
+                System.out.println("    fehlgeschlagen: " + e.getMessage());
+                failed++;
+            }
+        }
+
+        if (tmdb != null && series != null && Files.exists(seriesDir)) {
+            tmdb.downloadArtwork(series, seriesDir);
+        }
+
+        System.out.println();
+        System.out.printf("Fertig. %d geladen, %d uebersprungen, %d fehlgeschlagen.%n",
+                done, skipped, failed);
+        if (failed > 0) {
+            System.out.println("Denselben Befehl nochmal aufrufen - Vorhandenes wird uebersprungen.");
+        }
+        return failed > 0 ? 1 : 0;
+    }
+
+    private static String fileFor(String name, int season, int episode,
+                                  String[] entry, boolean withTitles, String container) {
+        String title = withTitles ? entry[1] : "";
+        return Naming.episodeFile(name, season, episode, title, container);
+    }
+
+    // ------------------------------------------------------------------
+    // goblin movie <url> <titel>
+    // ------------------------------------------------------------------
+
+    /**
+     * Laedt ein Video als einzelnen Film. Kein Schneiden, keine Kapitel -
+     * nur Herunterladen und so ablegen, wie Jellyfins Film-Scanner es erwartet.
+     */
+    private static int movie(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.err.println("Aufruf: goblin movie <url> <titel> [optionen]");
+            return 2;
+        }
+
+        String url = args[1];
+        String title = args[2];
+
+        Path out = Path.of("output/filme");
+        Integer year = null;
+        Integer tmdbId = null;
+        boolean useTmdb = true;
+        boolean dryRun = false;
+        boolean verbose = false;
+        String format = YtDlp.FORMAT_H264;
+        String container = "mp4";
+
+        for (int i = 3; i < args.length; i++) {
+            switch (args[i]) {
+                case "-o", "--out" -> out = Path.of(args[++i]);
+                case "--year" -> year = Integer.valueOf(args[++i]);
+                case "--tmdb-id" -> tmdbId = Integer.valueOf(args[++i]);
+                case "--no-tmdb" -> useTmdb = false;
+                case "--dry-run" -> dryRun = true;
+                case "--verbose", "-v" -> verbose = true;
+                case "--movie" -> { }
+                case "--best" -> {
+                    format = YtDlp.FORMAT_BEST;
+                    container = "mkv";
+                }
+                case "--format", "-f" -> format = args[++i];
+                case "--container" -> container = args[++i];
+                default -> {
+                    System.err.println("Unbekannte Option: " + args[i]);
+                    return 2;
+                }
+            }
+        }
+
+        requireTools(!dryRun);
+
+        System.out.println("Metadaten abrufen ...");
+        VideoMeta meta = YtDlp.metadata(url, verbose);
+        System.out.println("Video: " + meta.title());
+
+        Tmdb.Series film = null;
+        Tmdb tmdb = useTmdb ? Tmdb.fromEnvironment() : null;
+        if (tmdb != null) {
+            try {
+                film = (tmdbId != null) ? tmdb.movieById(tmdbId) : tmdb.searchMovie(title);
+                if (film != null) {
+                    System.out.printf("TMDb: %s (%s), ID %d%n", film.name(), film.year(), film.id());
+                }
+            } catch (IOException e) {
+                System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
+            }
+        } else if (useTmdb) {
+            System.out.println("Kein TMDB_API_KEY gesetzt, ueberspringe Artwork.");
+        }
+
+        Integer folderYear = (year != null) ? year : (film != null ? film.year() : null);
+        Integer folderId = (tmdbId != null) ? tmdbId : (film != null ? film.id() : null);
+
+        Path movieDir = out.resolve(Naming.movieFolder(title, folderYear, folderId));
+        String fileName = Naming.movieFile(title, folderYear, container);
+
+        System.out.println();
+        System.out.println(movieDir);
+        System.out.println("  " + fileName);
+        System.out.println();
+
+        if (dryRun) {
+            System.out.println("Dry-Run, es wurde nichts geschrieben.");
+            return 0;
+        }
+
+        Files.createDirectories(movieDir);
+
+        System.out.println("Video laden ...");
+        String stem = fileName.substring(0, fileName.lastIndexOf('.'));
+        YtDlp.download(url, movieDir.resolve(stem), format, container);
+
+        if (tmdb != null && film != null) {
+            tmdb.downloadArtwork(film, movieDir);
+        }
+
+        System.out.println();
+        System.out.println("Fertig. " + movieDir.resolve(fileName));
+        return 0;
+    }
+
     // ------------------------------------------------------------------
     // goblin playlist <url> <name>
     // ------------------------------------------------------------------
@@ -148,11 +395,44 @@ public final class Goblin {
         int firstSeason = 1;
         String extra = "--snap --reencode";
 
+        boolean episodeMode = false;
+        int from = 1;
+        int to = Integer.MAX_VALUE;
+        int startEpisode = 1;
+        Integer year = null;
+        Integer tmdbId = null;
+        boolean useTmdb = true;
+        boolean withTitles = false;
+        boolean fromTitle = false;
+        boolean overwrite = false;
+        boolean dryRun = false;
+        boolean verbose = false;
+        String format = YtDlp.FORMAT_H264;
+        String container = "mp4";
+
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
                 case "-o", "--out" -> out = args[++i];
                 case "-s", "--season" -> firstSeason = Integer.parseInt(args[++i]);
                 case "--extra" -> extra = args[++i];
+                case "--episodes" -> episodeMode = true;
+                case "--from" -> from = Integer.parseInt(args[++i]);
+                case "--to" -> to = Integer.parseInt(args[++i]);
+                case "-e", "--start-episode" -> startEpisode = Integer.parseInt(args[++i]);
+                case "--year" -> year = Integer.valueOf(args[++i]);
+                case "--tmdb-id" -> tmdbId = Integer.valueOf(args[++i]);
+                case "--no-tmdb" -> useTmdb = false;
+                case "--titles" -> withTitles = true;
+                case "--from-title" -> fromTitle = true;
+                case "--overwrite" -> overwrite = true;
+                case "--dry-run" -> dryRun = true;
+                case "--verbose", "-v" -> verbose = true;
+                case "--best" -> {
+                    format = YtDlp.FORMAT_BEST;
+                    container = "mkv";
+                }
+                case "--format", "-f" -> format = args[++i];
+                case "--container" -> container = args[++i];
                 default -> {
                     System.err.println("Unbekannte Option: " + args[i]);
                     return 2;
@@ -166,9 +446,30 @@ public final class Goblin {
             return 1;
         }
 
+        int total = entries.size();
+        int firstIndex = Math.max(1, from) - 1;
+        int lastIndex = Math.min(total, to);
+        if (firstIndex >= lastIndex) {
+            System.err.printf("Leerer Ausschnitt: %d Videos vorhanden, --from %d --to %d%n",
+                    total, from, to);
+            return 2;
+        }
+        if (firstIndex > 0 || lastIndex < total) {
+            entries = entries.subList(firstIndex, lastIndex);
+            System.out.printf("Ausschnitt %d bis %d von %d Videos%n", firstIndex + 1, lastIndex, total);
+        }
+
+        if (episodeMode) {
+            return episodes(entries, name, Path.of(out), firstSeason, startEpisode,
+                    year, tmdbId, useTmdb, withTitles, fromTitle, overwrite, dryRun, verbose,
+                    format, container);
+        }
+
         System.out.printf("%d Videos in der Playlist%n%n", entries.size());
         for (int i = 0; i < entries.size(); i++) {
-            System.out.printf("# %d. %s%n", i + 1, entries.get(i)[1]);
+            String title = entries.get(i)[1];
+            System.out.printf("# %d. %s%n", firstIndex + i + 1,
+                    title.isBlank() ? "(kein Titel)" : title);
             System.out.printf("series https://youtu.be/%s \"%s\" --out %s --season %d %s%n%n",
                     entries.get(i)[0], name, out, firstSeason + i, extra);
         }
@@ -185,6 +486,15 @@ public final class Goblin {
         if (args.length < 3) {
             System.err.println("Aufruf: goblin series <url> <name> [optionen]");
             return 2;
+        }
+
+        for (String a : args) {
+            if (a.equals("--movie")) {
+                // Damit Filme auch dann gehen, wenn der Wrapper nur 'series' kennt.
+                String[] forwarded = args.clone();
+                forwarded[0] = "movie";
+                return movie(forwarded);
+            }
         }
 
         String url = args[1];

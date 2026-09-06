@@ -86,6 +86,34 @@ Der erste Abschnitt ist immer korrekt, weil er bei 0:00 anfängt und dort ein Ke
 
 Wenn das stört: `--reencode`. Dann sitzt der Schnitt framegenau. Nur das Bild wird neu kodiert, der Ton wird kopiert.
 
+## Filme
+
+Ein Video als ganzen Film ablegen, ohne Schneiden:
+
+```
+movie <url> "Filmtitel" --out output/filme
+```
+
+Ergebnis:
+
+```
+Filme/
+  Filmtitel (2017) [tmdbid-12345]/
+    Filmtitel (2017).mp4
+    poster.jpg
+    backdrop.jpg
+```
+
+TMDb wird dabei über die Filmsuche abgefragt, nicht über die Seriensuche. Mit `--tmdb-id` lässt sich der Treffer festlegen, mit `--year` das Jahr überschreiben.
+
+Optionen wie bei `series`: `--best`, `-f`, `--container`, `--dry-run`, `--no-tmdb`, `--verbose`. `--snap` und `--reencode` gibt es hier nicht, weil nichts geschnitten wird — der Download landet unverändert als Datei.
+
+Lässt der Konsolen-Wrapper nur `series` durch:
+
+```
+series <url> "Filmtitel" --movie --out output/filme
+```
+
 ## Playlists
 
 Für eine Playlist mit einem Video je Staffel:
@@ -105,6 +133,49 @@ Lässt der Konsolen-Wrapper nur `chapters` durch, geht auch:
 ```
 chapters <playlist-url> --playlist "Ninjago"
 ```
+
+### Ein Video je Folge
+
+Playlists, bei denen jedes Video eine einzelne Episode ist:
+
+```
+playlist <url> "Name" --episodes --season 1 --out output/serien
+```
+
+Jedes Video wird einmal geladen und als eine Folge abgelegt — kein Schneiden, keine Kapitel. Die Nummerierung folgt der Reihenfolge der Playlist.
+
+Dateien heißen standardmäßig nur `Name S01E01.mp4`. Den Episodentitel holt sich Jellyfin über die Nummer aus TMDb, und YouTube-Titel sind dafür meist unbrauchbar. Mit `--titles` wird der Videotitel trotzdem angehängt.
+
+Zwei Dinge, die bei langen Playlists zählen:
+
+**Vorhandene Dateien werden übersprungen.** Bricht der Lauf bei Folge 30 ab, rufst du denselben Befehl nochmal auf und er macht dort weiter. Mit `--overwrite` wird stattdessen alles neu geladen.
+
+**Ein kaputtes Video stoppt nicht den Rest.** Fehlschläge werden gezählt und am Ende gemeldet, die übrigen Folgen laufen durch.
+
+Enthält eine Playlist mehrere Staffeln, teilst du sie mit `--from` und `--to` auf (1-basiert, beide einschließend):
+
+```
+playlist <url> "Name" --episodes --season 1 --from 1 --to 26
+playlist <url> "Name" --episodes --season 2 --from 27 --to 46
+```
+
+Wo die Grenzen liegen, zeigt die Liste ohne `--episodes` — dort steht der Titel jedes Videos mit seiner Position.
+
+Anonyme Playlists der Form `watch_videos?video_ids=...` werden direkt aus dem Link gelesen, ohne Umweg über YouTubes Playlist-Auflösung.
+
+### Staffel und Folge aus dem Titel
+
+Ist die Playlist durcheinander sortiert oder mischt sie Staffeln, liest `--from-title` die Nummern aus dem Videotitel statt aus der Position:
+
+```
+playlist <url> "Name" --episodes --from-title --out output/serien
+```
+
+Jede Folge landet dann im richtigen Staffelordner, egal wo sie in der Liste steht. Erkannt werden unter anderem `S01E02`, `s1e2`, `Season 2 Episode 5`, `Staffel 4 Folge 3` und `3x12`. Nennt der Titel nur eine Folgennummer, kommt die Staffel aus `--season`.
+
+Videos ohne erkennbare Nummer werden **übersprungen und am Ende aufgelistet** — nicht geraten. Ein durchnummerierter Rückfall würde sonst eine richtig erkannte Folge überschreiben. Meist sind das ohnehin Trailer oder Compilations, die nicht in die Staffel gehören.
+
+Vorher immer mit `--dry-run` prüfen: die Ausgabe zeigt für jedes Video den geplanten Pfad samt Staffelordner.
 
 ## Grenzen automatisch finden
 

@@ -58,6 +58,19 @@ final class Tmdb {
         return results.isEmpty() ? null : toSeries(Json.object(results.get(0)));
     }
 
+    Series searchMovie(String query) throws IOException, InterruptedException {
+        String url = API + "/search/movie?api_key=" + apiKey
+                + "&query=" + URLEncoder.encode(query, StandardCharsets.UTF_8);
+
+        Map<String, Object> root = Json.object(Json.parse(get(url)));
+        List<Object> results = Json.array(root.get("results"));
+        return results.isEmpty() ? null : toMovie(Json.object(results.get(0)));
+    }
+
+    Series movieById(int id) throws IOException, InterruptedException {
+        return toMovie(Json.object(Json.parse(get(API + "/movie/" + id + "?api_key=" + apiKey))));
+    }
+
     Series byId(int id) throws IOException, InterruptedException {
         String url = API + "/tv/" + id + "?api_key=" + apiKey;
         return toSeries(Json.object(Json.parse(get(url))));
@@ -67,6 +80,28 @@ final class Tmdb {
     void downloadArtwork(Series series, Path seriesFolder) {
         save(series.posterPath(), seriesFolder.resolve("poster.jpg"));
         save(series.backdropPath(), seriesFolder.resolve("backdrop.jpg"));
+    }
+
+    /** Filme heissen bei TMDb "title" und "release_date" statt "name"/"first_air_date". */
+    private Series toMovie(Map<String, Object> m) {
+        if (m.isEmpty()) {
+            return null;
+        }
+        int id = (int) Json.num(m, "id", -1);
+        if (id < 0) {
+            return null;
+        }
+        String released = Json.str(m, "release_date");
+        Integer year = (released != null && released.length() >= 4)
+                ? Integer.valueOf(released.substring(0, 4))
+                : null;
+
+        return new Series(
+                id,
+                Json.str(m, "title"),
+                year,
+                Json.str(m, "poster_path"),
+                Json.str(m, "backdrop_path"));
     }
 
     private Series toSeries(Map<String, Object> m) {
