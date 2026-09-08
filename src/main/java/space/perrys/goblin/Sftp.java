@@ -158,7 +158,7 @@ final class Sftp {
 
         // --globoff is load-bearing, not cosmetic: curl treats [] and {} as glob
         // ranges, and it applies that to --upload-file as well as to the URL.
-        // A folder like "Serie (2012) [tmdbid-34391]" makes curl fail with
+        // A folder like "Show (2012) [tmdbid-34391]" makes curl fail with
         // "bad range in URL" before it ever opens a connection.
         List<String> cmd = new ArrayList<>(List.of(
                 "curl", "--globoff", "--silent", "--show-error", "--fail",
