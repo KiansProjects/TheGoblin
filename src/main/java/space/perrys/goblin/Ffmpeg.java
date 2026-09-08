@@ -98,6 +98,34 @@ final class Ffmpeg {
         }
     }
 
+    /**
+     * Shortens a file to {@code seconds}, keeping the start.
+     *
+     * Copies the streams, so nothing is re-encoded and a second lossy
+     * generation is avoided. The cut therefore snaps to the next frame
+     * boundary, which for audio is a matter of milliseconds. Like
+     * {@link #tag}, it writes a sibling and moves it over.
+     */
+    static void trimTo(Path file, double seconds) throws IOException, InterruptedException {
+        String name = file.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        String ext = (dot < 0) ? "" : name.substring(dot);
+        Path tmp = file.resolveSibling(name + ".trimming" + ext);
+
+        try {
+            Proc.inherit(List.of(
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", file.toString(),
+                    "-t", fmt(seconds),
+                    "-map", "0", "-c", "copy",
+                    tmp.toString()));
+            java.nio.file.Files.move(tmp, file,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmp);
+        }
+    }
+
     private static String fmt(double seconds) {
         return String.format(Locale.ROOT, "%.3f", seconds);
     }

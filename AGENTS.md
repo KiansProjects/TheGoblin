@@ -89,7 +89,8 @@ Changing them means changing them without a safety net.
 | `TitleNumbers.java` | read season and episode from the video title |
 | `Naming.java` | build paths the way Jellyfin's scanner expects them |
 | `Tmdb.java` | show ID, year, poster, backdrop image |
-| `MusicBrainz.java` | album IDs for music, embedded as tags rather than in the folder name |
+| `MusicBrainz.java` | album IDs for music, embedded as tags rather than in the folder name; track lengths |
+| `Trim.java` | cut a music video back to the length of the album track |
 | `Sftp.java` | push finished files away through curl |
 | `Json.java` | minimal JSON parser, replaces a dependency |
 

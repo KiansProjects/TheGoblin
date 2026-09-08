@@ -114,6 +114,8 @@ Without `--artist` and `--album` the channel and the playlist title are used. Ta
 | `--artist`, `--album` | override what would come from the metadata |
 | `--musicbrainz` | look the album up and embed its MusicBrainz IDs |
 | `--mbid <id>` | pin the MusicBrainz release instead of searching |
+| `--trim` | cut music-video outros back to the album length |
+| `--trim-tolerance <s>` | how much overlength is allowed, default 4 |
 | `--dry-run` | only show where it would write |
 
 ### MusicBrainz IDs
@@ -149,6 +151,46 @@ Two things worth knowing:
 Much of what this command is for — own recordings, fan projects, netlabel
 releases, podcasts — has no MusicBrainz entry at all. Then nothing is found,
 nothing is written, and the download is unaffected.
+
+### Music videos that run long
+
+A music video is not the album track. It carries a spoken intro, a fade that
+runs on, applause, a closing card — anywhere from two seconds to a minute that
+does not belong on the record. In a collection that shows up as a run time
+disagreeing with every other copy of the song.
+
+`--trim` measures against MusicBrainz, which knows how long the release version
+is, so the surplus is a measured quantity rather than a guess:
+
+```
+audio <playlist-url> --artist "Linkin Park" --album "Meteora" --trim
+```
+
+It implies `--musicbrainz` — the track lengths come from the same lookup. Per
+file:
+
+1. The file is matched to a release track **by title**, not by position: a
+   playlist's order is only as good as whoever assembled it. `01 - Numb
+   (Official Video).mp3` and `Numb` match because the comparison drops case,
+   punctuation and the usual decoration. When the title says nothing, the
+   number in the file name is the fallback, and that is reported as such.
+2. Files no more than `--trim-tolerance` seconds over the release length are
+   left alone. Four seconds by default, which covers encoders and a fade.
+3. Everything longer is cut — at the **trailing silence** when there is one
+   near the expected end, otherwise at the release length exactly. Cutting at
+   the silence ends the file on the last note instead of mid-fade.
+
+The cut copies the streams, so nothing is re-encoded and the tags and cover art
+survive. **Only the end is cut.** Extra material at the start would have to be
+found rather than derived, and cutting the wrong end would take the first bar
+of the song with it.
+
+Files that are *shorter* than the release version are never touched — that is a
+radio edit or a different mix, and the run says so. Same for a track MusicBrainz
+has no length for.
+
+*Written and tested against faked ffprobe/ffmpeg output; the matching and the
+parsing have unit coverage, but no run against a real download has happened yet.*
 
 **On flac and wav:** YouTube serves Opus or AAC, so already lossy. Converting to flac makes the files bigger, not better — the lost information does not come back. If you want to work without further loss, use `--format best`: then the original track stays as it is, with no re-encoding.
 

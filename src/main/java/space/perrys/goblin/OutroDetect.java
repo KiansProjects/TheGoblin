@@ -52,6 +52,17 @@ final class OutroDetect {
         return black;
     }
 
+    /**
+     * The silence signal on its own, for material that has no picture to look
+     * at - an extracted audio track whose video ran a few seconds longer than
+     * the music.
+     *
+     * @return the point from which it is silent to the end, or empty
+     */
+    static OptionalDouble silenceTail(Path media, double duration) {
+        return trailingSilence(media, Math.max(0, duration - SEARCH), duration);
+    }
+
     /** Silence that runs through to the end. */
     private static OptionalDouble trailingSilence(Path media, double from, double duration) {
         String out = analyse(media, from, "silencedetect=noise=-45dB:d=1.5", true);

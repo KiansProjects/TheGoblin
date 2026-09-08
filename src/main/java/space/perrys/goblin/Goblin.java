@@ -457,6 +457,8 @@ public final class Goblin {
         boolean dryRun = false;
         boolean useMusicBrainz = false;
         String mbid = null;
+        boolean trim = false;
+        double trimTolerance = Trim.DEFAULT_TOLERANCE;
         boolean upload = false;
         boolean keepLocal = false;
 
@@ -473,6 +475,15 @@ public final class Goblin {
                 case "--musicbrainz" -> useMusicBrainz = true;
                 case "--mbid" -> {
                     mbid = args[++i];
+                    useMusicBrainz = true;
+                }
+                case "--trim" -> {
+                    trim = true;
+                    useMusicBrainz = true;
+                }
+                case "--trim-tolerance" -> {
+                    trimTolerance = Double.parseDouble(args[++i]);
+                    trim = true;
                     useMusicBrainz = true;
                 }
                 case "--dry-run" -> dryRun = true;
@@ -517,6 +528,7 @@ public final class Goblin {
         // Looked up before the download so a wrong hit is visible before
         // anything lands on disk.
         MusicBrainz.Release release = null;
+        List<MusicBrainz.Track> mbTracks = List.of();
         if (useMusicBrainz) {
             if (mbid == null && album == null) {
                 System.out.println("MusicBrainz needs an album name - pass --album or --mbid.");
@@ -526,6 +538,11 @@ public final class Goblin {
                     release = (mbid != null) ? mb.byId(mbid) : mb.search(artist, album);
                     if (release == null) {
                         System.out.println("MusicBrainz: no match, carrying on without IDs.");
+                    } else if (trim) {
+                        // Fetched here rather than after the download so a
+                        // release without track lengths is visible before the
+                        // trimming would silently do nothing.
+                        mbTracks = mb.tracks(release.id());
                     }
                 } catch (IOException | RuntimeException e) {
                     System.out.println("MusicBrainz unreachable, carrying on without it: "
@@ -542,6 +559,12 @@ public final class Goblin {
         if (release != null) {
             System.out.printf("MusicBrainz: %s - %s, ID %s%n",
                     release.artist(), release.title(), release.id());
+        }
+        if (trim) {
+            System.out.println("Trim:    " + (mbTracks.isEmpty()
+                    ? "no track lengths available, nothing will be cut"
+                    : mbTracks.size() + " track lengths, tolerance "
+                            + (long) trimTolerance + " s"));
         }
         System.out.println();
 
@@ -572,6 +595,15 @@ public final class Goblin {
         // path, which is only resolved during the download - the folder is not
         // known here then.
         boolean unknownFolder = artistDir.contains("%(") || albumDir.contains("%(");
+
+        // Before the tagging: a shortened file is written out again, and the
+        // tags should be the ones that survive to the end.
+        if (trim && release != null && !unknownFolder) {
+            Trim.run(albumPath, mbTracks, trimTolerance);
+        } else if (trim && unknownFolder) {
+            System.out.println("Artist or album came from the metadata, so the folder is not "
+                    + "known up front - nothing trimmed. Pass --artist and --album for that.");
+        }
 
         if (release != null) {
             embedIds(albumPath, release, format, unknownFolder);
