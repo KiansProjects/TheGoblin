@@ -468,6 +468,31 @@ One trap: `goblin.properties` is a Java properties file, so a backslash is an
 escape character there. A password containing `\` must be written `\\`, or the
 backslash is silently swallowed before TheGoblin ever sees it.
 
+### The host key
+
+curl verifies the target's SSH host key against `known_hosts`, and a fresh
+container has none. The upload then fails with **code 60**, "SSH remote key was
+not OK", before anything is transferred. The curl command line has no option to
+point at a `known_hosts` file, so the host key is pinned by hash instead:
+
+```
+sftp.hostkey_sha256 = SHA256:dSbT7xQ2mK9pLvN4wR8zY1aC3eF5gH7jK9mP0qS2uW4
+```
+
+Get it from a machine that can reach the target:
+
+```bash
+ssh-keyscan -p 22 the-host 2>/dev/null | ssh-keygen -lf -
+```
+
+The `SHA256:` prefix may stay, it is stripped. Against a Panel's built-in SFTP
+there is no ambiguity about which key to pin: Wings loads exactly one host key
+and offers only that one.
+
+`sftp.insecure = true` skips the check instead. It trusts whatever answers on
+that host and port, so it is only reasonable on a network you control — the run
+prints a warning when it is on, and the hash wins if both are set.
+
 **Failed uploads delete nothing.** If the target is unreachable, the file stays local and the run carries on — you can push it up by hand later. With `--keep-local` the copy stays in place as a rule.
 
 The server's disk limit therefore only bounds what is currently being worked on, not the total amount.

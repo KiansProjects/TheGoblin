@@ -24,3 +24,18 @@ sftp.base = /srv/media
 # Careful: this is a Java properties file, so a backslash is an escape
 # character. A password containing \ has to be written \\ here.
 # sftp.password =
+
+# SSH host key of the target, as SHA256.
+# curl checks the host key against known_hosts, which a fresh container does
+# not have - without this the upload fails with code 60 before transferring
+# anything. Get the hash from your own machine with:
+#
+#   ssh-keyscan -p 22 the-host 2>/dev/null | ssh-keygen -lf -
+#
+# Paste the SHA256:... part; the prefix may stay, it is stripped.
+# sftp.hostkey_sha256 =
+
+# Or skip the host key check entirely. Then anything answering on that
+# host and port is trusted. Only sensible on a network you control, and
+# the hash above is the better answer. Ignored when the hash is set.
+# sftp.insecure = false

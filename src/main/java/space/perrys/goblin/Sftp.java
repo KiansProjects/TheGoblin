@@ -38,14 +38,19 @@ final class Sftp {
     private final String user;
     private final Path key;
     private final String password;
+    private final String hostKey;
+    private final boolean insecure;
     private final String base;
 
-    private Sftp(String host, int port, String user, Path key, String password, String base) {
+    private Sftp(String host, int port, String user, Path key, String password,
+                 String hostKey, boolean insecure, String base) {
         this.host = host;
         this.port = port;
         this.user = user;
         this.key = key;
         this.password = password;
+        this.hostKey = hostKey;
+        this.insecure = insecure;
         this.base = stripTrailingSlash(base);
     }
 
@@ -110,7 +115,32 @@ final class Sftp {
             }
         }
 
-        return new Sftp(host, port, user, key, password, base);
+        // curl checks the server's SSH host key against known_hosts, which a
+        // fresh container does not have - the upload then fails with code 60
+        // before any transfer starts. Pinning the hash is the way out; the
+        // curl CLI has no option to point at a known_hosts file.
+        String hostKeyValue = value(p, "sftp.hostkey_sha256");
+        String hostKey = (hostKeyValue == null)
+                ? null
+                // ssh-keygen prints "SHA256:<base64>", curl wants the base64 alone.
+                : hostKeyValue.replaceFirst("(?i)^sha256:", "").strip();
+
+        String insecureValue = value(p, "sftp.insecure");
+        boolean insecure = insecureValue != null
+                && List.of("1", "true", "yes").contains(insecureValue.toLowerCase());
+
+        if (hostKey != null && insecure) {
+            System.out.println("sftp.hostkey_sha256 and sftp.insecure are both set - "
+                    + "verifying against the hash.");
+            insecure = false;
+        }
+
+        if (insecure) {
+            System.out.println("Warning: sftp.insecure skips the SSH host key check. "
+                    + "Anything that can answer on " + host + ":" + port + " will be trusted.");
+        }
+
+        return new Sftp(host, port, user, key, password, hostKey, insecure, base);
     }
 
     String describe() {
@@ -135,6 +165,12 @@ final class Sftp {
                 "--ftp-create-dirs",
                 "--upload-file", localFile.toString(),
                 url));
+
+        if (hostKey != null) {
+            cmd.addAll(List.of("--hostpubsha256", hostKey));
+        } else if (insecure) {
+            cmd.add("--insecure");
+        }
 
         if (key != null) {
             cmd.addAll(List.of("--key", key.toString(), "--user", user + ":"));
