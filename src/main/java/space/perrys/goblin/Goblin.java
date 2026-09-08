@@ -22,6 +22,7 @@ public final class Goblin {
               goblin shows <url> <title> --movie      the same through 'shows'
               goblin audio <url> [options]            store the audio track as music
               goblin concat <url> <title>             join a playlist into one file
+              goblin concat <url> <title> --movie     the same, stored as a movie
               goblin playlist <url> <name>            print ready-made shows lines
               goblin playlist <url> <name> --episodes one video per episode
                                                       --from/--to limit the range,
@@ -537,6 +538,10 @@ public final class Goblin {
         double minScore = 0.90;
         boolean dryRun = false;
         boolean keepParts = false;
+        boolean movieMode = false;
+        Integer year = null;
+        Integer tmdbId = null;
+        boolean useTmdb = true;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
 
@@ -552,6 +557,10 @@ public final class Goblin {
                 case "--max-overlap" -> maxOverlap = Double.parseDouble(args[++i]);
                 case "--dry-run" -> dryRun = true;
                 case "--keep-parts" -> keepParts = true;
+                case "--movie" -> movieMode = true;
+                case "--year" -> year = Integer.valueOf(args[++i]);
+                case "--tmdb-id" -> tmdbId = Integer.valueOf(args[++i]);
+                case "--no-tmdb" -> useTmdb = false;
                 case "--best" -> {
                     format = YtDlp.FORMAT_BEST;
                     container = "mkv";
@@ -565,6 +574,10 @@ public final class Goblin {
             }
         }
 
+        if (!movieMode && (year != null || tmdbId != null || !useTmdb)) {
+            System.out.println("Note: --year, --tmdb-id and --no-tmdb only take effect with --movie.");
+        }
+
         requireTools(!dryRun);
 
         List<String[]> entries = YtDlp.playlist(url);
@@ -574,19 +587,51 @@ public final class Goblin {
         }
 
         System.out.printf("%d parts%n", entries.size());
+
+        // With --movie the result is stored the way the movie command would:
+        // one folder per film carrying year and TMDb ID, so Jellyfin does not
+        // have to guess. Without it the join stays a flat file - concat also
+        // serves let's plays and talks, and a movie search on those would stamp
+        // a wrong ID onto the folder, which is worse than none.
+        Tmdb.Series film = null;
+        Tmdb tmdb = (movieMode && useTmdb) ? Tmdb.from(CONFIG) : null;
+        if (tmdb != null) {
+            try {
+                film = (tmdbId != null) ? tmdb.movieById(tmdbId) : tmdb.searchMovie(title);
+                if (film != null) {
+                    System.out.printf("TMDb: %s (%s), ID %d%n", film.name(), film.year(), film.id());
+                }
+            } catch (IOException e) {
+                System.out.println("TMDb unreachable, carrying on without it: " + e.getMessage());
+            }
+        } else if (movieMode && useTmdb) {
+            System.out.println("No TMDb key (tmdb.api_key in " + CONFIG
+                    + " or TMDB_API_KEY), skipping artwork.");
+        }
+
+        Path targetDir = out;
+        Path target = out.resolve(Naming.sanitize(title) + "." + container);
+        if (movieMode) {
+            Integer folderYear = (year != null) ? year : (film != null ? film.year() : null);
+            Integer folderId = (tmdbId != null) ? tmdbId : (film != null ? film.id() : null);
+            targetDir = out.resolve(Naming.movieFolder(title, folderYear, folderId));
+            target = targetDir.resolve(Naming.movieFile(title, folderYear, container));
+        }
+
         if (dryRun) {
             for (int i = 0; i < entries.size(); i++) {
                 System.out.printf("  %2d. %s%n", i + 1,
                         entries.get(i)[1].isBlank() ? entries.get(i)[0] : entries.get(i)[1]);
             }
             System.out.println();
+            System.out.println(target);
+            System.out.println();
             System.out.println("Dry run, nothing was downloaded.");
             return 0;
         }
 
         Path work = Files.createTempDirectory(workRoot(), "goblin-concat-");
-        Path target = out.resolve(Naming.sanitize(title) + "." + container);
-        Files.createDirectories(out);
+        Files.createDirectories(targetDir);
 
         try {
             // 1. Download every part
@@ -661,6 +706,10 @@ public final class Goblin {
             }
 
             Ffmpeg.concat(segments, work.resolve("list.txt"), target);
+
+            if (tmdb != null && film != null) {
+                tmdb.downloadArtwork(film, targetDir);
+            }
 
             if (keepParts) {
                 System.out.println("Parts remain in " + work);

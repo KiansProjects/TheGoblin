@@ -146,11 +146,51 @@ On one test transition the real match scored 0.999, the best false match 0.80. T
 | `--max-overlap <sec>` | longest plausible overlap, default 30 |
 | `--min-score <0-1>` | threshold for a match, default 0.90 |
 | `--keep-parts` | keep the individual parts after joining |
-| `--dry-run` | only list the parts |
+| `--movie` | store the result as a movie, see below |
+| `--year <year>` | release year, overrides TMDb (needs `--movie`) |
+| `--tmdb-id <id>` | pin the movie ID instead of searching (needs `--movie`) |
+| `--no-tmdb` | no database lookup, no artwork (needs `--movie`) |
+| `--dry-run` | list the parts and the target path |
 
 The upper bound on overlaps is not a cosmetic detail: with periodic music the loudness envelope repeats, and then the same start fits in several places. Without a bound the wrong match occasionally wins.
 
 Before joining, every part is re-encoded so that the cuts sit frame-accurately and all sections share the same parameters. On long playlists that takes accordingly long.
+
+### A movie split into parts
+
+Channels like Marvel HQ or LEGO regularly upload a whole film as four or five
+consecutive videos. Joined back together that is a movie, and it should be
+stored as one:
+
+```
+concat <playlist-url> "The Lego Ninjago Movie" --movie --out output/movies
+```
+
+With `--movie` the result does not land as a flat file but in the same layout
+the `movie` command produces — one folder per film, with the year and the TMDb
+ID in the name, poster and backdrop next to it:
+
+```
+output/movies/
+  The Lego Ninjago Movie (2017) [tmdbid-324849]/
+    The Lego Ninjago Movie (2017).mkv
+    poster.jpg
+    backdrop.jpg
+```
+
+That ID is the point: without it Jellyfin has to guess the film from the file
+name, and a joined YouTube upload is exactly the case where it guesses wrong.
+`--tmdb-id` pins the match when the search picks the wrong film, `--year`
+overrides the year, `--no-tmdb` skips the lookup entirely.
+
+If TMDb finds nothing, or no key is configured, the folder is simply built
+without the brackets — `The Lego Ninjago Movie/The Lego Ninjago Movie.mkv`.
+Nothing breaks.
+
+**Without `--movie` nothing changes.** The join stays a flat file, because
+`concat` also serves let's plays and talks — running a movie search on those
+would occasionally stamp a wrong TMDb ID onto the folder, and a wrong ID is
+worse than none.
 
 ### Limits
 
