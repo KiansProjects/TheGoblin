@@ -1,11 +1,11 @@
 package space.perrys.goblin;
 
 /**
- * Ein Abschnitt des Videos.
+ * One section of the video.
  *
- * @param start Startzeit in Sekunden
- * @param end   Endzeit in Sekunden
- * @param title Titel ohne den Zeitstempel
+ * @param start start time in seconds
+ * @param end   end time in seconds
+ * @param title title without the timestamp
  */
 record Chapter(double start, double end, String title) {
 

@@ -6,15 +6,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Liest Staffel- und Folgennummer aus einem Videotitel.
+ * Reads season and episode number out of a video title.
  *
- * Playlists sind haeufig durcheinander sortiert oder mischen Staffeln. Wenn
- * der Titel die Nummern traegt, ist er die verlaesslichere Quelle als die
- * Position in der Liste.
+ * Playlists are often out of order or mix seasons together. When the title
+ * carries the numbers, it is the more reliable source than the position in
+ * the list.
  */
 final class TitleNumbers {
 
-    /** Reihenfolge zaehlt: die eindeutigsten Muster zuerst. */
+    /** Order matters: the least ambiguous patterns first. */
     private static final List<Pattern> BOTH = List.of(
             // S01E02, S1 E2, s1e2, S01 x 02
             Pattern.compile("\\bS\\s*(\\d{1,2})\\s*[EX]\\s*(\\d{1,3})\\b", Pattern.CASE_INSENSITIVE),
@@ -25,13 +25,13 @@ final class TitleNumbers {
             // 1x02
             Pattern.compile("\\b(\\d{1,2})\\s*x\\s*(\\d{1,3})\\b", Pattern.CASE_INSENSITIVE));
 
-    /** Nur die Folge, ohne Staffel - die kommt dann von --season. */
+    /** Episode only, without a season - that one then comes from --season. */
     private static final Pattern EPISODE_ONLY = Pattern.compile(
             "\\b(?:Episode|Folge|Ep\\.?)\\s*(\\d{1,3})\\b", Pattern.CASE_INSENSITIVE);
 
     /**
-     * @param season Staffelnummer
-     * @param episode Folgennummer
+     * @param season season number
+     * @param episode episode number
      */
     record Ref(int season, int episode) {
     }
@@ -40,7 +40,7 @@ final class TitleNumbers {
     }
 
     /**
-     * @param fallbackSeason wird benutzt, wenn der Titel nur eine Folgennummer nennt
+     * @param fallbackSeason used when the title names an episode number only
      */
     static Optional<Ref> parse(String title, int fallbackSeason) {
         if (title == null || title.isBlank()) {

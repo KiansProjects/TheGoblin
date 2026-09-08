@@ -10,17 +10,17 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Sucht die tatsaechliche Schnittstelle in der Naehe eines Zeitstempels.
+ * Finds the actual cut point near a timestamp.
  *
- * Zeitstempel in YouTube-Beschreibungen sind von Hand getippt und liegen gern
- * ein bis zwei Sekunden daneben. Statt jeden einzeln nachzumessen, schaut
- * TheGoblin in einem Fenster um den Zeitstempel herum nach, wo das Bild
- * tatsaechlich wechselt.
+ * Timestamps in YouTube descriptions are typed by hand and tend to be a second
+ * or two off. Instead of measuring every single one, TheGoblin looks inside a
+ * window around the timestamp for the point where the picture actually changes.
  *
- * Zwei Signale, in dieser Reihenfolge:
- * 1. Schwarzbild - bei Episodenuebergaengen fast immer vorhanden. Der Schnitt
- *    gehoert ans Ende des schwarzen Abschnitts, dort faengt das neue Bild an.
- * 2. Harter Szenenwechsel, falls kein Schwarzbild gefunden wird.
+ * Two signals, in this order:
+ * 1. Black frame - almost always present at episode transitions. The cut
+ *    belongs at the end of the black stretch, that is where the new picture
+ *    starts.
+ * 2. Hard scene change, if no black frame is found.
  */
 final class CutDetect {
 
@@ -30,13 +30,13 @@ final class CutDetect {
     private static final Pattern PTS = Pattern.compile("pts_time:([0-9.]+)");
     private static final Pattern SCORE = Pattern.compile("lavfi\\.scene_score=([0-9.]+)");
 
-    /** Wie stark sich das Bild aendern muss, damit es als Szenenwechsel zaehlt. */
+    /** How much the picture has to change to count as a scene change. */
     private static final double SCENE_THRESHOLD = 0.2;
 
-    /** Kuerzestes Schwarzbild, das noch als Uebergang gilt. */
+    /** Shortest black stretch that still counts as a transition. */
     private static final double MIN_BLACK = 0.04;
 
-    /** Woher der gefundene Schnitt stammt - nur fuer die Ausgabe. */
+    /** Where the cut that was found came from - for the output only. */
     enum Source { BLACK, SCENE, NONE }
 
     record Result(double time, Source source) {
@@ -46,10 +46,10 @@ final class CutDetect {
     }
 
     /**
-     * @param window Halbe Fensterbreite in Sekunden. Gesucht wird in
+     * @param window half the window width in seconds. The search runs over
      *               [target - window, target + window].
-     * @return der gefundene Schnittzeitpunkt, oder der unveraenderte Zielwert,
-     *         wenn sich nichts finden liess
+     * @return the cut point that was found, or the unchanged target value if
+     *         nothing could be found
      */
     static Result nearest(Path video, double target, double window) {
         double from = Math.max(0, target - window);
@@ -68,7 +68,7 @@ final class CutDetect {
         return new Result(target, Source.NONE);
     }
 
-    /** Ende des Schwarzbilds, das dem Zielwert am naechsten liegt. */
+    /** End of the black stretch closest to the target value. */
     private static OptionalDouble black(Path video, double from, double length, double target) {
         String out = analyse(video, from, length, "blackdetect=d=" + fmt(MIN_BLACK) + ":pix_th=0.10");
         if (out == null) {
@@ -90,7 +90,7 @@ final class CutDetect {
         return Double.isNaN(best) ? OptionalDouble.empty() : OptionalDouble.of(best);
     }
 
-    /** Szenenwechsel, der dem Zielwert am naechsten liegt. */
+    /** Scene change closest to the target value. */
     private static OptionalDouble scene(Path video, double from, double length, double target) {
         String out = analyse(video, from, length,
                 "select='gt(scene," + fmt(SCENE_THRESHOLD) + ")',metadata=print:file=-");
@@ -122,9 +122,9 @@ final class CutDetect {
     }
 
     /**
-     * Laesst ffmpeg das Fenster analysieren, ohne etwas zu schreiben.
-     * -copyts sorgt dafuer, dass die gemeldeten Zeiten die des Originals sind
-     * und nicht bei null anfangen.
+     * Lets ffmpeg analyse the window without writing anything.
+     * -copyts makes sure the reported times are those of the original and do
+     * not start at zero.
      */
     private static String analyse(Path video, double from, double length, String filter) {
         try {

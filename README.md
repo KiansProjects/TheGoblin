@@ -1,13 +1,13 @@
 # TheGoblin
 
-Zerlegt ein YouTube-Video anhand seiner Kapitel in einzelne Episodendateien und legt sie so ab, wie Jellyfins Scanner sie erwartet.
+Splits a YouTube video into individual episode files along its chapters and stores them the way Jellyfin's scanner expects them.
 
-## Voraussetzungen
+## Requirements
 
 - Java 21+
-- `yt-dlp` und `ffmpeg` im PATH
+- `yt-dlp` and `ffmpeg` on the PATH
 
-Das Projekt hat keine externen Java-Dependencies — `./build.sh` reicht, Maven ist optional (`mvn package`).
+The project has no external Java dependencies — `./build.sh` is enough, Maven is optional (`mvn package`).
 
 ## Installation
 
@@ -16,32 +16,32 @@ Das Projekt hat keine externen Java-Dependencies — `./build.sh` reicht, Maven 
 sudo ln -s "$PWD/goblin" /usr/local/bin/goblin
 ```
 
-## Benutzung
+## Usage
 
 ```bash
-# Erst schauen, was drin ist
+# First have a look at what is in there
 goblin chapters https://www.youtube.com/watch?v=...
 
-# Dann zerlegen
-goblin series https://www.youtube.com/watch?v=... "Ninjago" \
-    --out /srv/media/serien --season 1
+# Then split it
+goblin shows https://www.youtube.com/watch?v=... "Ninjago" \
+    --out /srv/media/shows --season 1
 ```
 
-### Optionen
+### Options
 
-| Option | Bedeutung |
+| Option | Meaning |
 |---|---|
-| `-o, --out <pfad>` | Zielverzeichnis, Standard aktuelles Verzeichnis |
-| `-s, --season <n>` | Staffelnummer, Standard 1 |
-| `-e, --start-episode <n>` | Nummer der ersten Episode, Standard 1 |
-| `--year <jahr>` | Erscheinungsjahr, überschreibt TMDb |
-| `--tmdb-id <id>` | Serien-ID fest vorgeben statt zu suchen |
-| `--no-tmdb` | keine Datenbankabfrage, kein Artwork |
-| `--reencode` | exakt schneiden statt auf Keyframes zu runden |
-| `--keep` | das komplette Video nach dem Schneiden behalten |
-| `--dry-run` | nur zeigen, was passieren würde |
+| `-o, --out <path>` | target directory, defaults to the current directory |
+| `-s, --season <n>` | season number, default 1 |
+| `-e, --start-episode <n>` | number of the first episode, default 1 |
+| `--year <year>` | release year, overrides TMDb |
+| `--tmdb-id <id>` | pin the show ID instead of searching |
+| `--no-tmdb` | no database lookup, no artwork |
+| `--reencode` | cut exactly instead of rounding to keyframes |
+| `--keep` | keep the whole video after cutting |
+| `--dry-run` | only show what would happen |
 
-## Ergebnis
+## Result
 
 ```
 Ninjago (2011) [tmdbid-12345]/
@@ -52,231 +52,231 @@ Ninjago (2011) [tmdbid-12345]/
     Ninjago S01E02 - The Golden Weapon.mp4
 ```
 
-## Serien-Datenbank
+## Show database
 
-Mit einem kostenlosen TMDb-Key holt TheGoblin Serien-ID, Erstausstrahlungsjahr, Poster und Hintergrundbild. Der Key steht in `goblin.properties`:
+With a free TMDb key TheGoblin fetches the show ID, the year it first aired, a poster and a backdrop image. The key goes into `goblin.properties`:
 
 ```
-tmdb.api_key = dein_key
+tmdb.api_key = your_key
 ```
 
-Ersatzweise wird die Umgebungsvariable `TMDB_API_KEY` gelesen; die Datei hat Vorrang. `goblin.properties` steht in der `.gitignore` — im Repo liegt nur `goblin.properties.example`.
+Failing that the environment variable `TMDB_API_KEY` is read; the file takes priority. `goblin.properties` is listed in `.gitignore` — only `goblin.properties.example` is in the repo.
 
-Die ID landet im Ordnernamen, damit Jellyfin die Serie nicht selbst erraten muss. Ohne Key läuft alles andere unverändert.
+The ID ends up in the folder name so that Jellyfin does not have to guess the show itself. Without a key everything else runs unchanged.
 
-## Wie die Kapitel gefunden werden
+## How the chapters are found
 
-1. Hat YouTube die Zeitstempel als Kapitel erkannt, nutzt `yt-dlp` sie direkt — das ist der zuverlässige Fall.
-2. Sonst wird die Beschreibung durchsucht. Zuerst nur Zeilen, die mit einem Zeitstempel beginnen (die übliche Kapitelliste). Findet das nichts, wird lockerer gesucht, etwa `Episode 1 - Way of the Ninja - 0:00`.
+1. If YouTube recognised the timestamps as chapters, `yt-dlp` uses them directly — that is the reliable case.
+2. Otherwise the description is searched. First only lines starting with a timestamp (the usual chapter list). If that finds nothing, the search runs more loosely, e.g. `Episode 1 - Way of the Ninja - 0:00`.
 
-Zeilen wie `New videos at 10:00 AM every Saturday` oder `Live um 20:15 Uhr` werden aussortiert — sonst hättest du eine Episode namens „AM every Saturday" in der Mediathek.
+Lines like `New videos at 10:00 AM every Saturday` or `Live at 8:15 PM` are filtered out — otherwise you would end up with an episode called "AM every Saturday" in your media library.
 
-Der letzte Abschnitt läuft immer bis zum Videoende. Bei Sammelvideos mit Abspann oder Werbung am Schluss lohnt sich vorher ein `goblin chapters`.
+The last section always runs to the end of the video. For compilation videos with credits or ads at the end, a `goblin chapters` beforehand is worth it.
 
-## Schnittgenauigkeit
+## Cut accuracy
 
-Standardmäßig wird ohne Neukodierung geschnitten (`-c copy`). Das dauert Sekunden statt Minuten, hat aber eine Eigenart, die man kennen muss: ein Videostream ist nur ab einem Keyframe dekodierbar, also beginnt jeder Abschnitt am Keyframe **vor** der gewünschten Zeit. Der Abschnitt wird dadurch länger als angegeben — bei YouTube typischerweise um bis zu 2 Sekunden, weil dort etwa alle 2 Sekunden ein Keyframe sitzt.
+By default the cut happens without re-encoding (`-c copy`). That takes seconds instead of minutes, but it has a quirk worth knowing: a video stream is only decodable from a keyframe onwards, so every section starts at the keyframe **before** the requested time. The section therefore comes out longer than specified — on YouTube typically by up to 2 seconds, because a keyframe sits there roughly every 2 seconds.
 
-Gemessen an einem Testvideo mit Keyframes im 2-Sekunden-Raster, Schnitt ab 11,0 s über 5,0 s:
+Measured on a test video with keyframes on a 2-second grid, cutting from 11.0 s over 5.0 s:
 
-| Modus | Ergebnis |
+| Mode | Result |
 |---|---|
-| `-c copy` | 6,08 s |
-| `--reencode` | 5,00 s |
+| `-c copy` | 6.08 s |
+| `--reencode` | 5.00 s |
 
-Der erste Abschnitt ist immer korrekt, weil er bei 0:00 anfängt und dort ein Keyframe liegt. Es geht nichts verloren, es ist nur vorne der Schluss des vorherigen Abschnitts mit dran.
+The first section is always correct, because it starts at 0:00 and a keyframe sits there. Nothing is lost, there is just the tail of the previous section attached at the front.
 
-Wenn das stört: `--reencode`. Dann sitzt der Schnitt framegenau. Nur das Bild wird neu kodiert, der Ton wird kopiert.
+If that bothers you: `--reencode`. Then the cut is frame-accurate. Only the picture is re-encoded, the audio is copied.
 
-## Tonspuren
+## Audio tracks
 
-Für Musik, die es nur auf YouTube gibt — eigene Aufnahmen, Fanprojekte, Netlabel-Veröffentlichungen, Podcasts, Vorträge:
-
-```
-audio <url> --artist "Name" --album "Album" --out output/musik
-```
-
-Ablage nach dem üblichen Muster für Musiksammlungen, das Navidrome, Jellyfin und Plex verstehen:
+For music that only exists on YouTube — your own recordings, fan projects, netlabel releases, podcasts, talks:
 
 ```
-Interpret/
+audio <url> --artist "Name" --album "Album" --out output/music
+```
+
+Stored in the usual layout for music collections, the one Navidrome, Jellyfin and Plex understand:
+
+```
+Artist/
   Album/
-    01 - Titel.mp3
+    01 - Title.mp3
 ```
 
-Ohne `--artist` und `--album` werden Kanal und Playlisttitel benutzt. Tags und Titelbild werden eingebettet.
+Without `--artist` and `--album` the channel and the playlist title are used. Tags and cover art are embedded.
 
-| Option | Bedeutung |
+| Option | Meaning |
 |---|---|
-| `--format` | mp3 (Standard), m4a, opus, flac, wav, oder `best` |
-| `--quality <0-10>` | 0 ist die beste Stufe, gilt nur für mp3 |
-| `--chapters` | ein langes Video anhand seiner Kapitel in Einzeltitel teilen |
-| `--artist`, `--album` | überschreiben, was aus den Metadaten käme |
-| `--dry-run` | nur zeigen, wohin geschrieben würde |
+| `--format` | mp3 (default), m4a, opus, flac, wav, or `best` |
+| `--quality <0-10>` | 0 is the best level, applies to mp3 only |
+| `--chapters` | split one long video into individual tracks along its chapters |
+| `--artist`, `--album` | override what would come from the metadata |
+| `--dry-run` | only show where it would write |
 
-**Zu flac und wav:** YouTube liefert Opus oder AAC, also bereits verlustbehaftet. Eine Umwandlung nach flac macht die Dateien größer, nicht besser — die verlorene Information kommt nicht zurück. Wenn du ohne weitere Verluste arbeiten willst, nimm `--format best`: dann bleibt die Originalspur, wie sie ist, ohne Neukodierung.
+**On flac and wav:** YouTube serves Opus or AAC, so already lossy. Converting to flac makes the files bigger, not better — the lost information does not come back. If you want to work without further loss, use `--format best`: then the original track stays as it is, with no re-encoding.
 
-## Mehrteilige Videos zusammenfügen
+## Joining multi-part videos
 
-Für Material, das ein Kanal in mehreren Teilen hochgeladen hat — lange Let's Plays, Vorträge, Dokus:
+For material a channel uploaded in several parts — long let's plays, talks, documentaries:
 
 ```
-concat <playlist-url> "Titel" --out output
+concat <playlist-url> "Title" --out output
 ```
 
-Die Teile werden in Playlist-Reihenfolge geladen, an den Übergängen zugeschnitten und zu einer Datei zusammengefügt.
+The parts are downloaded in playlist order, trimmed at the transitions and joined into one file.
 
-### Was geschnitten wird
+### What gets cut
 
-**Abspann am Ende jedes Teils.** Erkannt über eine Stille, die bis zum Videoende durchläuft, oder ein Schwarzbild am Ende. Ein Outro mit durchlaufender Musik und Bild lässt sich so nicht finden — dafür gibt es `--outro <sekunden>` für einen festen Abzug oder `--no-outro`.
+**Closing credits at the end of each part.** Detected through a silence that runs to the end of the video, or a black frame at the end. An outro with music and picture running through cannot be found this way — `--outro <seconds>` gives a fixed deduction for that, or `--no-outro`.
 
-**Doppelter Anfang.** Fängt ein Teil mit dem Ende des vorherigen an, wird der doppelte Teil entfernt. Verglichen werden die Lautstärkeverläufe beider Tonspuren über den normierten Korrelationskoeffizienten — grob genug, um Kodierungsunterschiede zu überstehen, fein genug für sekundengenaue Treffer.
+**Duplicate start.** If a part begins with the end of the previous one, the duplicated stretch is removed. What gets compared are the loudness envelopes of both audio tracks, over the normalised correlation coefficient — coarse enough to survive encoding differences, fine enough for second-accurate hits.
 
-An einem Testübergang lag der echte Treffer bei 0,999, der beste Fehltreffer bei 0,80. Die Schwelle steht deshalb auf 0,90.
+On one test transition the real match scored 0.999, the best false match 0.80. The threshold is set to 0.90 because of that.
 
-### Optionen
+### Options
 
-| Option | Bedeutung |
+| Option | Meaning |
 |---|---|
-| `--outro <sek>` | fester Abzug am Ende statt Erkennung |
-| `--no-outro` | Abspann nicht schneiden |
-| `--overlap <sek>` | Suchfenster für die Überlappung, Standard 90 |
-| `--no-overlap` | Anfänge nicht schneiden |
-| `--min-overlap <sek>` | kürzeste Überlappung, Standard 1 |
-| `--max-overlap <sek>` | längste plausible Überlappung, Standard 30 |
-| `--min-score <0-1>` | Schwelle für einen Treffer, Standard 0.90 |
-| `--keep-parts` | Einzelteile nach dem Zusammenfügen behalten |
-| `--dry-run` | nur die Teile auflisten |
+| `--outro <sec>` | fixed deduction at the end instead of detection |
+| `--no-outro` | do not cut the credits |
+| `--overlap <sec>` | search window for the overlap, default 90 |
+| `--no-overlap` | do not trim the starts |
+| `--min-overlap <sec>` | shortest overlap, default 1 |
+| `--max-overlap <sec>` | longest plausible overlap, default 30 |
+| `--min-score <0-1>` | threshold for a match, default 0.90 |
+| `--keep-parts` | keep the individual parts after joining |
+| `--dry-run` | only list the parts |
 
-Die Obergrenze für Überlappungen ist kein Schönheitsfehler: bei periodischer Musik wiederholt sich der Lautstärkeverlauf, und dann passt derselbe Anfang an mehreren Stellen. Ohne Grenze gewinnt gelegentlich der falsche Treffer.
+The upper bound on overlaps is not a cosmetic detail: with periodic music the loudness envelope repeats, and then the same start fits in several places. Without a bound the wrong match occasionally wins.
 
-Vor dem Zusammenfügen wird jeder Teil neu kodiert, damit die Schnitte framegenau sitzen und alle Abschnitte dieselben Parameter haben. Bei langen Playlists dauert das entsprechend.
+Before joining, every part is re-encoded so that the cuts sit frame-accurately and all sections share the same parameters. On long playlists that takes accordingly long.
 
-### Grenzen
+### Limits
 
-Die Ausgabe im Log zeigt für jeden Teil, was erkannt wurde. Steht dort bei einem Übergang nichts, obwohl du eine Überlappung erwartest, hilft ein größeres `--overlap` oder ein niedrigeres `--min-score` — letzteres aber vorsichtig, unter 0,85 häufen sich Fehltreffer.
+The log output shows for every part what was detected. If nothing is listed for a transition although you expect an overlap, a larger `--overlap` or a lower `--min-score` helps — the latter carefully though, below 0.85 false matches pile up.
 
-## Filme
+## Movies
 
-Ein Video als ganzen Film ablegen, ohne Schneiden:
-
-```
-movie <url> "Filmtitel" --out output/filme
-```
-
-Ergebnis:
+Store a video as a whole movie, without cutting:
 
 ```
-Filme/
-  Filmtitel (2017) [tmdbid-12345]/
-    Filmtitel (2017).mp4
+movie <url> "Movie title" --out output/movies
+```
+
+Result:
+
+```
+Movies/
+  Movie title (2017) [tmdbid-12345]/
+    Movie title (2017).mp4
     poster.jpg
     backdrop.jpg
 ```
 
-TMDb wird dabei über die Filmsuche abgefragt, nicht über die Seriensuche. Mit `--tmdb-id` lässt sich der Treffer festlegen, mit `--year` das Jahr überschreiben.
+TMDb is queried through the movie search here, not the show search. `--tmdb-id` pins the match, `--year` overrides the year.
 
-Optionen wie bei `series`: `--best`, `-f`, `--container`, `--dry-run`, `--no-tmdb`, `--verbose`. `--snap` und `--reencode` gibt es hier nicht, weil nichts geschnitten wird — der Download landet unverändert als Datei.
+Options as with `shows`: `--best`, `-f`, `--container`, `--dry-run`, `--no-tmdb`, `--verbose`. There is no `--snap` and no `--reencode` here, because nothing is cut — the download lands as a file unchanged.
 
-Lässt der Konsolen-Wrapper nur `series` durch:
+If the console wrapper only lets `shows` through:
 
 ```
-series <url> "Filmtitel" --movie --out output/filme
+shows <url> "Movie title" --movie --out output/movies
 ```
 
 ## Playlists
 
-Für eine Playlist mit einem Video je Staffel:
+For a playlist with one video per season:
 
 ```
 playlist <playlist-url> "Ninjago"
 ```
 
-Das liest die Playlist flach aus und druckt für jedes Video eine fertige `series`-Zeile, mit hochgezählter Staffelnummer und Titel als Kommentar darüber. Nichts wird dabei heruntergeladen.
+That reads the playlist flat and prints a ready-made `shows` line for every video, with the season number counting up and the title as a comment above it. Nothing is downloaded in the process.
 
-Optionen: `--out <pfad>`, `--season <n>` für die erste Staffelnummer, `--extra "<optionen>"` für das, was an jede Zeile angehängt wird (Standard `--snap --reencode`).
+Options: `--out <path>`, `--season <n>` for the first season number, `--extra "<options>"` for what gets appended to every line (default `--snap --reencode`).
 
-Die Zeilen vor dem Ausführen durchsehen — ob die Reihenfolge der Playlist wirklich der Staffelreihenfolge entspricht, weiß nur der Kanal.
+Look the lines over before running them — whether the order of the playlist really matches the season order is something only the channel knows.
 
-Lässt der Konsolen-Wrapper nur `chapters` durch, geht auch:
+Lets the console wrapper only through `chapters`, this works too:
 
 ```
 chapters <playlist-url> --playlist "Ninjago"
 ```
 
-### Ein Video je Folge
+### One video per episode
 
-Playlists, bei denen jedes Video eine einzelne Episode ist:
+Playlists where every video is a single episode:
 
 ```
-playlist <url> "Name" --episodes --season 1 --out output/serien
+playlist <url> "Name" --episodes --season 1 --out output/shows
 ```
 
-Jedes Video wird einmal geladen und als eine Folge abgelegt — kein Schneiden, keine Kapitel. Die Nummerierung folgt der Reihenfolge der Playlist.
+Every video is downloaded once and stored as one episode — no cutting, no chapters. The numbering follows the order of the playlist.
 
-Dateien heißen standardmäßig nur `Name S01E01.mp4`. Den Episodentitel holt sich Jellyfin über die Nummer aus TMDb, und YouTube-Titel sind dafür meist unbrauchbar. Mit `--titles` wird der Videotitel trotzdem angehängt.
+Files are named just `Name S01E01.mp4` by default. Jellyfin fetches the episode title from TMDb via the number, and YouTube titles are mostly unusable for that. With `--titles` the video title is appended anyway.
 
-Zwei Dinge, die bei langen Playlists zählen:
+Two things that matter on long playlists:
 
-**Vorhandene Dateien werden übersprungen.** Bricht der Lauf bei Folge 30 ab, rufst du denselben Befehl nochmal auf und er macht dort weiter. Mit `--overwrite` wird stattdessen alles neu geladen.
+**Existing files are skipped.** If the run breaks off at episode 30, you call the same command again and it carries on from there. With `--overwrite` everything is downloaded again instead.
 
-**Ein kaputtes Video stoppt nicht den Rest.** Fehlschläge werden gezählt und am Ende gemeldet, die übrigen Folgen laufen durch.
+**One broken video does not stop the rest.** Failures are counted and reported at the end, the remaining episodes run through.
 
-Enthält eine Playlist mehrere Staffeln, teilst du sie mit `--from` und `--to` auf (1-basiert, beide einschließend):
+If a playlist contains several seasons, you split it up with `--from` and `--to` (1-based, both inclusive):
 
 ```
 playlist <url> "Name" --episodes --season 1 --from 1 --to 26
 playlist <url> "Name" --episodes --season 2 --from 27 --to 46
 ```
 
-Wo die Grenzen liegen, zeigt die Liste ohne `--episodes` — dort steht der Titel jedes Videos mit seiner Position.
+Where the boundaries lie is shown by the listing without `--episodes` — the title of every video is there with its position.
 
-Anonyme Playlists der Form `watch_videos?video_ids=...` werden direkt aus dem Link gelesen, ohne Umweg über YouTubes Playlist-Auflösung.
+Anonymous playlists of the form `watch_videos?video_ids=...` are read straight from the link, without the detour through YouTube's playlist resolution.
 
-### Staffel und Folge aus dem Titel
+### Season and episode from the title
 
-Ist die Playlist durcheinander sortiert oder mischt sie Staffeln, liest `--from-title` die Nummern aus dem Videotitel statt aus der Position:
-
-```
-playlist <url> "Name" --episodes --from-title --out output/serien
-```
-
-Jede Folge landet dann im richtigen Staffelordner, egal wo sie in der Liste steht. Erkannt werden unter anderem `S01E02`, `s1e2`, `Season 2 Episode 5`, `Staffel 4 Folge 3` und `3x12`. Nennt der Titel nur eine Folgennummer, kommt die Staffel aus `--season`.
-
-Videos ohne erkennbare Nummer werden **übersprungen und am Ende aufgelistet** — nicht geraten. Ein durchnummerierter Rückfall würde sonst eine richtig erkannte Folge überschreiben. Meist sind das ohnehin Trailer oder Compilations, die nicht in die Staffel gehören.
-
-Vorher immer mit `--dry-run` prüfen: die Ausgabe zeigt für jedes Video den geplanten Pfad samt Staffelordner.
-
-## Grenzen automatisch finden
-
-Zeitstempel in Beschreibungen sind von Hand getippt und liegen oft ein bis zwei Sekunden daneben. Statt jeden nachzumessen:
+If the playlist is out of order or mixes seasons, `--from-title` reads the numbers from the video title instead of from the position:
 
 ```
-series <url> "Name" --snap --reencode
+playlist <url> "Name" --episodes --from-title --out output/shows
 ```
 
-TheGoblin sucht dann in einem Fenster um jeden Zeitstempel herum nach dem tatsächlichen Bildwechsel. Zwei Signale, in dieser Reihenfolge:
+Every episode then lands in the right season folder, wherever it sits in the list. Among others `S01E02`, `s1e2`, `Season 2 Episode 5`, `Staffel 4 Folge 3` and `3x12` are recognised.  If the title names only an episode number, the season comes from `--season`.
 
-1. **Schwarzbild** — bei Episodenübergängen fast immer vorhanden. Der Schnitt landet am Ende des schwarzen Abschnitts, also am ersten Bild der neuen Folge.
-2. **Harter Szenenwechsel** — falls kein Schwarzbild da ist.
+Videos without a recognisable number are **skipped and listed at the end** — not guessed at. A sequentially numbered fallback would otherwise overwrite a correctly detected episode. Mostly those are trailers or compilations that do not belong in the season anyway.
 
-Findet er nichts, bleibt der ursprüngliche Zeitstempel stehen. Im Log steht pro Grenze, was gefunden wurde:
+Always check with `--dry-run` first: the output shows the planned path including the season folder for every video.
+
+## Finding boundaries automatically
+
+Timestamps in descriptions are typed by hand and are often a second or two off. Instead of measuring every one of them:
 
 ```
-Grenzen suchen (Fenster 5 s) ...
-  11:00 -> 11:02  (+2.31 s, Schwarzbild)
-  22:00 -> 22:01  (+1.04 s, Szenenwechsel)
+shows <url> "Name" --snap --reencode
 ```
 
-Die Fensterbreite lässt sich angeben: `--snap 10` sucht ±10 Sekunden. Größer heißt mehr Toleranz gegenüber schlechten Zeitstempeln, aber auch mehr Risiko, einen Szenenwechsel *innerhalb* der Folge zu erwischen.
+TheGoblin then searches in a window around every timestamp for the actual picture change. Two signals, in this order:
 
-Der erste Abschnitt bleibt immer bei 0:00.
+1. **Black frame** — almost always present at episode transitions. The cut lands at the end of the black stretch, meaning at the first frame of the new episode.
+2. **Hard scene change** — if there is no black frame.
 
-**Zusammen mit `--reencode` benutzen.** Ohne rastet der Schnitt trotzdem auf den Keyframe davor ein, und die genaue Grenze wäre wieder verschenkt.
+If it finds nothing, the original timestamp stays. The log shows per boundary what was found:
 
-## Eigene Zeitstempel
+```
+Searching for boundaries (window 5 s) ...
+  11:00 -> 11:02  (+2.31 s, black frame)
+  22:00 -> 22:01  (+1.04 s, scene change)
+```
 
-Stimmen die Kapitel im Video nicht, lässt sich eine eigene Liste mitgeben — gleiches Format wie eine YouTube-Beschreibung, eine Zeile je Abschnitt:
+The window width can be given: `--snap 10` searches ±10 seconds. Larger means more tolerance towards bad timestamps, but also more risk of catching a scene change *inside* the episode.
+
+The first section always stays at 0:00.
+
+**Use it together with `--reencode`.** Without it the cut still snaps to the keyframe before, and the exact boundary would be given away again.
+
+## Custom timestamps
+
+If the chapters in the video are wrong, you can pass your own list — same format as a YouTube description, one line per section:
 
 ```
 0:00 Way of the Ninja
@@ -286,98 +286,98 @@ Stimmen die Kapitel im Video nicht, lässt sich eine eigene Liste mitgeben — g
 ```
 
 ```
-series <url> "Name" --chapters kapitel.txt
+shows <url> "Name" --chapters chapters.txt
 ```
 
-Liegen alle Zeitstempel gleichmäßig daneben, reicht `--offset <sekunden>`. Der verschiebt jede Grenze ab der zweiten; die erste bleibt bei 0, damit der Anfang nicht abgeschnitten wird.
+If all timestamps are off by the same amount, `--offset <seconds>` is enough. It shifts every boundary from the second one on; the first stays at 0 so that the beginning does not get cut off.
 
-## Download-Format
+## Download format
 
-Bevorzugt wird H.264 mit AAC in mp4. YouTube liefert sonst VP9 oder AV1 in webm, was viele Clients nicht direkt abspielen — dann transcodiert der Server, und bei AV1 mangels Hardware-Decoder komplett auf der CPU.
+H.264 with AAC in mp4 is preferred. Otherwise YouTube serves VP9 or AV1 in webm, which many clients cannot play directly — then the server transcodes, and with AV1, for lack of a hardware decoder, entirely on the CPU.
 
-## Ideen für später
+## Ideas for later
 
-- `goblin playlist <url>` für ganze Playlists, eine Episode pro Video statt pro Kapitel
-- Erkennung, ob eine Episode schon existiert, statt blind zu überschreiben
-- `--map` mit einer Datei, die Kapitelnummer auf Episodennummer abbildet, für Fälle wo TMDb anders zählt als das Video
-- Wenn du es als echtes Kommando willst: Quarkus mit `quarkus-picocli` und Native Image gibt dir ein Binary ohne JVM-Startzeit
+- `goblin playlist <url>` for whole playlists, one episode per video instead of per chapter
+- detection of whether an episode already exists, instead of overwriting blindly
+- `--map` with a file mapping chapter number to episode number, for cases where TMDb counts differently than the video
+- if you want it as a real command: Quarkus with `quarkus-picocli` and a native image gives you a binary without JVM startup time
 
-## Qualität und Codecs
+## Quality and codecs
 
-Standardmäßig wird H.264 mit AAC in mp4 geladen. Das spielt praktisch jeder Client direkt ab — YouTube liefert H.264 aber höchstens bis 1080p, bei älteren Uploads oft nur 720p. Höhere Auflösungen gibt es dort nur als VP9 oder AV1.
+By default H.264 with AAC in mp4 is downloaded. Practically every client plays that directly — but YouTube serves H.264 only up to 1080p at most, and on older uploads often only 720p. Higher resolutions exist there only as VP9 or AV1.
 
-Erst nachsehen, was das Video überhaupt hergibt:
+Have a look at what the video actually offers first:
 
 ```
 chapters <url> --formats
 ```
 
-Steht dort nichts über 720p, ist das Video schlicht nicht besser vorhanden.
+If nothing above 720p is listed, the video simply does not exist in better quality.
 
-Gibt es höhere Auflösungen in anderen Codecs:
-
-```
-series <url> "Name" --best
-```
-
-`--best` nimmt die beste verfügbare Kombination unabhängig vom Codec und legt das Ergebnis als mkv ab, weil VP9 und Opus dort verlässlicher sitzen als in mp4.
-
-Der Preis: VP9 und AV1 spielen nicht alle Clients direkt ab, dann transcodiert der Server. Ohne Hardware-Decoder für AV1 landet das komplett auf der CPU.
-
-Wer es genauer will, setzt den Selektor selbst:
+If higher resolutions do exist in other codecs:
 
 ```
-series <url> "Name" -f "bv*[height<=1080]+ba" --container mkv
+shows <url> "Name" --best
 ```
 
-Die Syntax ist die von yt-dlp.
+`--best` takes the best available combination regardless of codec and stores the result as mkv, because VP9 and Opus sit more reliably in that than in mp4.
 
-## Direkt auf einen anderen Server laden
+The price: not every client plays VP9 and AV1 directly, and then the server transcodes. Without a hardware decoder for AV1 that lands entirely on the CPU.
 
-Statt im Serververzeichnis zu sammeln, kann TheGoblin jede fertige Datei per SFTP wegschieben und die lokale Kopie löschen. Nützlich, wenn die Mediathek auf einem anderen Rechner liegt als der Goblin läuft.
+If you want it more precise, set the selector yourself:
 
-`goblin.properties` ins Arbeitsverzeichnis legen (Vorlage: `goblin.properties.example`):
+```
+shows <url> "Name" -f "bv*[height<=1080]+ba" --container mkv
+```
+
+The syntax is yt-dlp's.
+
+## Uploading straight to another server
+
+Instead of collecting files in the server directory, TheGoblin can push every finished file away over SFTP and delete the local copy. Useful when the media library sits on a different machine than the goblin runs on.
+
+Put `goblin.properties` in the working directory (template: `goblin.properties.example`):
 
 ```
 sftp.host = 192.168.1.50
 sftp.port = 22
 sftp.user = perry
 sftp.key  = /home/container/.ssh/id_ed25519
-sftp.base = /srv/media/serien
+sftp.base = /srv/media/shows
 ```
 
-Dann `--upload` an `series`, `movie` oder `playlist --episodes` anhängen. Der Pfad unter `sftp.base` entspricht dem, was sonst unter `--out` entstanden wäre — Serienordner und Staffelunterordner werden auf dem Ziel angelegt.
+Then append `--upload` to `shows`, `movie` or `playlist --episodes`. The path below `sftp.base` matches what would otherwise have been created below `--out` — show folders and season subfolders are created on the target.
 
-Umgesetzt über `curl`, das im Yolk ohnehin vorhanden ist und SFTP kann. Ein `sftp`-Binary wäre erst nachzurüsten.
+Implemented through `curl`, which is present in the yolk anyway and can do SFTP. An `sftp` binary would have to be installed first.
 
-Nur Schlüsselauthentifizierung. Ein Passwort stünde im Klartext in der Datei und in der Prozessliste. Den öffentlichen Schlüssel neben den privaten legen (`id_ed25519.pub`), dann findet TheGoblin ihn selbst.
+Key authentication only. A password would sit in plain text in the file and in the process list. Put the public key next to the private one (`id_ed25519.pub`), then TheGoblin finds it itself.
 
-**Fehlgeschlagene Uploads löschen nichts.** Ist das Ziel nicht erreichbar, bleibt die Datei lokal liegen und der Lauf geht weiter — du kannst sie später von Hand nachschieben. Mit `--keep-local` bleibt die Kopie grundsätzlich stehen.
+**Failed uploads delete nothing.** If the target is unreachable, the file stays local and the run carries on — you can push it up by hand later. With `--keep-local` the copy stays in place as a rule.
 
-Das Disk-Limit des Servers begrenzt damit nur noch, was gerade in Arbeit ist, nicht die Gesamtmenge.
+The server's disk limit therefore only bounds what is currently being worked on, not the total amount.
 
-## Speicherplatz
+## Disk space
 
-Der Download läuft über ein Arbeitsverzeichnis, das TheGoblin im aktuellen Verzeichnis anlegt — nicht in `/tmp`. In einem Wings-Container ist `/tmp` ein tmpfs mit wenigen hundert Megabyte, und Video plus Tonspur plus gemuxte Datei sprengen das sofort.
+The download runs through a working directory that TheGoblin creates in the current directory — not in `/tmp`. In a Wings container `/tmp` is a tmpfs of a few hundred megabytes, and video plus audio track plus the muxed file blows through that immediately.
 
-Rechne mit etwa dem Dreifachen der Videogröße als freiem Platz: getrennte Video- und Audiodatei, die gemuxte mp4, dazu die geschnittenen Episoden. Bei einem 170-MB-Video also rund 700 MB.
+Reckon with about three times the video size in free space: separate video and audio files, the muxed mp4, plus the cut episodes. So for a 170 MB video, around 700 MB.
 
-Mit `GOBLIN_TMP` lässt sich ein anderes Arbeitsverzeichnis setzen, etwa auf einem Mount mit mehr Platz.
+`GOBLIN_TMP` sets a different working directory, for instance on a mount with more room.
 
-## Wenn YouTube blockt
+## When YouTube blocks
 
-Manche Videos verlangen einen bestimmten Player-Client oder eine angemeldete Sitzung. Erkennbar daran, dass das Video im Browser läuft, yt-dlp aber `This video is not available` meldet.
+Some videos require a particular player client or a signed-in session. Recognisable by the video playing in the browser while yt-dlp reports `This video is not available`.
 
-Zwei Stellschrauben, beide ohne Codeänderung:
+Two adjustments, both without a code change:
 
-**Zusatzargumente** über die Umgebungsvariable `YTDLP_ARGS` — wird an jeden yt-dlp-Aufruf angehängt:
+**Extra arguments** through the environment variable `YTDLP_ARGS` — appended to every yt-dlp call:
 
 ```
 --extractor-args "youtube:player_client=web_safari,default"
 ```
 
-Zum Nachsehen, was tatsächlich passiert: `chapters <url> --verbose`. Das druckt das vollständige yt-dlp-Kommando und reicht dessen Meldungen durch, statt sie mit `--no-warnings` zu schlucken. Damit siehst du, ob deine Zusatzargumente ankommen und welche Player-Clients yt-dlp probiert hat.
+To see what actually happens: `chapters <url> --verbose`. That prints the full yt-dlp command and passes its messages through instead of swallowing them with `--no-warnings`. With it you can see whether your extra arguments arrive and which player clients yt-dlp tried.
 
-**Cookies**: liegt eine `cookies.txt` im Arbeitsverzeichnis, benutzt TheGoblin sie automatisch. Export im Netscape-Format, z.B. über eine Browser-Erweiterung.
+**Cookies**: if a `cookies.txt` sits in the working directory, TheGoblin uses it automatically. Export in Netscape format, e.g. through a browser extension.
 
-Eine Cookie-Datei ist eine angemeldete Sitzung deines Kontos — behandle sie wie ein Passwort, und rechne damit, dass YouTube automatisiertes Herunterladen mit einem Konto ungern sieht. Für den Anfang lieber erst die Player-Client-Variante probieren.
+A cookie file is a signed-in session of your account — treat it like a password, and expect that YouTube dislikes automated downloading with an account. To start with, try the player-client variant first.

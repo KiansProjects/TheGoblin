@@ -9,21 +9,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Duenne Huelle um yt-dlp. */
+/** Thin wrapper around yt-dlp. */
 final class YtDlp {
 
     /**
-     * Bevorzugt H.264 mit AAC in mp4. Das spielt so gut wie jeder Client direkt ab,
-     * waehrend YouTubes Standard (VP9 oder AV1 in webm) den Server zum Transcodieren
-     * zwingt.
+     * Prefers H.264 with AAC in mp4. Just about every client plays that
+     * directly, whereas YouTube's default (VP9 or AV1 in webm) forces the
+     * server to transcode.
      */
     static final String FORMAT_H264 =
             "bv*[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b";
 
-    /** Beste verfuegbare Qualitaet, egal welcher Codec. Kann VP9 oder AV1 sein. */
+    /** Best available quality, whatever the codec. Can be VP9 or AV1. */
     static final String FORMAT_BEST = "bv*+ba/b";
 
-    /** Wird automatisch benutzt, wenn die Datei im Arbeitsverzeichnis liegt. */
+    /** Used automatically when the file sits in the working directory. */
     private static final Path COOKIES = Path.of("cookies.txt");
 
     private YtDlp() {
@@ -34,15 +34,15 @@ final class YtDlp {
     }
 
     /**
-     * @param verbose druckt das vollstaendige yt-dlp-Kommando und reicht dessen
-     *                Meldungen durch. Ohne das schluckt --no-warnings genau die
-     *                Zeilen, die bei einer Fehlersuche interessant sind.
+     * @param verbose prints the full yt-dlp command and passes its messages
+     *                through. Without it, --no-warnings swallows exactly the
+     *                lines that matter when troubleshooting.
      */
     static VideoMeta metadata(String url, boolean verbose) throws IOException, InterruptedException {
         List<String> cmd = base(verbose);
-        // Kapitel stehen in den Metadaten, nicht in den Streams. Ohne dieses Flag
-        // bricht yt-dlp ab, sobald YouTube keine brauchbaren Format-URLs liefert
-        // (SABR, fehlende PO-Tokens) - obwohl alles Noetige schon da waere.
+        // Chapters live in the metadata, not in the streams. Without this flag
+        // yt-dlp gives up as soon as YouTube serves no usable format URLs
+        // (SABR, missing PO tokens) - even though everything needed is there.
         cmd.addAll(List.of("--ignore-no-formats-error", "--skip-download", "-J", url));
 
         if (verbose) {
@@ -71,25 +71,25 @@ final class YtDlp {
     }
 
     /**
-     * Liest eine Playlist, ohne jedes Video einzeln aufzurufen.
-     * Liefert Paare aus Video-ID und Titel in der Reihenfolge der Playlist.
+     * Reads a playlist without calling up every video individually.
+     * Returns pairs of video ID and title in playlist order.
      */
     static List<String[]> playlist(String url) throws IOException, InterruptedException {
-        // Erst yt-dlp fragen - nur so bekommen wir die Titel, an denen sich
-        // Staffelgrenzen ablesen lassen. Die IDs aus dem Link sind der
-        // Rueckfall, falls YouTube die Playlist nicht aufloest.
+        // Ask yt-dlp first - only that way do we get the titles that season
+        // boundaries can be read from. The IDs in the link are the fallback,
+        // in case YouTube does not resolve the playlist.
         try {
             List<String[]> resolved = viaYtDlp(url);
             if (!resolved.isEmpty()) {
                 return resolved;
             }
         } catch (IOException e) {
-            System.out.println("Playlist liess sich nicht aufloesen, nutze die IDs aus dem Link.");
+            System.out.println("Could not resolve the playlist, using the IDs from the link.");
         }
 
         List<String[]> direct = idsFromUrl(url);
         if (!direct.isEmpty()) {
-            System.out.println("Hinweis: ohne Titel, die Reihenfolge stammt aus dem Link.");
+            System.out.println("Note: no titles, the order comes from the link.");
         }
         return direct;
     }
@@ -115,9 +115,9 @@ final class YtDlp {
     }
 
     /**
-     * Anonyme Playlists der Form watch_videos?video_ids=a,b,c tragen die IDs
-     * schon im Link. Die lesen wir direkt aus - das ist verlaesslicher als die
-     * Aufloesung ueber YouTube und behaelt die Reihenfolge garantiert bei.
+     * Anonymous playlists of the form watch_videos?video_ids=a,b,c already
+     * carry the IDs in the link. We read those out directly - that is more
+     * reliable than resolving through YouTube and keeps the order guaranteed.
      */
     static List<String[]> idsFromUrl(String url) {
         int at = url.indexOf("video_ids=");
@@ -143,9 +143,9 @@ final class YtDlp {
     }
 
     /**
-     * Titel und Kanal einer Playlist, ohne die Eintraege einzeln abzurufen.
+     * Title and channel of a playlist, without fetching the entries one by one.
      *
-     * @return {Titel, Kanal}, Felder koennen leer sein
+     * @return {title, channel}, fields can be empty
      */
     static String[] playlistMeta(String url) {
         List<String> cmd = new ArrayList<>(List.of(
@@ -167,14 +167,14 @@ final class YtDlp {
     }
 
     /**
-     * Zieht die Tonspur heraus.
+     * Extracts the audio track.
      *
-     * Die Umwandlung uebernimmt yt-dlp mit ffmpeg, samt Tags und Titelbild.
+     * The conversion is done by yt-dlp with ffmpeg, tags and cover art included.
      *
-     * @param format mp3, flac, wav, opus, m4a - oder "best" fuer die
-     *               Originalspur ohne Neukodierung
-     * @param outputTemplate Ausgabemuster im yt-dlp-Format
-     * @param splitChapters true legt je Kapitel eine eigene Datei an
+     * @param format mp3, flac, wav, opus, m4a - or "best" for the original
+     *               track without re-encoding
+     * @param outputTemplate output pattern in yt-dlp format
+     * @param splitChapters true writes one file per chapter
      */
     static void audio(String url, String format, int quality, String outputTemplate,
                       boolean splitChapters) throws IOException, InterruptedException {
@@ -190,7 +190,7 @@ final class YtDlp {
         if (splitChapters) {
             cmd.add("--split-chapters");
             cmd.addAll(List.of("-o", "chapter:" + outputTemplate));
-            // Die ungeteilte Datei nicht behalten
+            // Do not keep the unsplit file
             cmd.addAll(List.of("-o", "pl_video:" + System.getProperty("java.io.tmpdir")
                     + "/goblin-full-%(id)s.%(ext)s"));
         } else {
@@ -201,14 +201,14 @@ final class YtDlp {
         Proc.inherit(cmd);
     }
 
-    /** Zeigt alle verfuegbaren Formate des Videos an. */
+    /** Lists every format available for the video. */
     static void listFormats(String url) throws IOException, InterruptedException {
         List<String> cmd = base();
         cmd.addAll(List.of("--ignore-no-formats-error", "-F", url));
         Proc.inherit(cmd);
     }
 
-    /** Laedt das komplette Video nach {@code target} (ohne Endung, yt-dlp haengt sie an). */
+    /** Downloads the whole video to {@code target} (without extension, yt-dlp appends it). */
     static Path download(String url, Path targetWithoutExtension, String format, String container)
             throws IOException, InterruptedException {
         List<String> cmd = base();
@@ -225,21 +225,21 @@ final class YtDlp {
             return merged;
         }
 
-        // Fallback: yt-dlp konnte nicht nach mp4 muxen
+        // Fallback: yt-dlp could not mux to mp4
         Path dir = targetWithoutExtension.getParent();
         String prefix = targetWithoutExtension.getFileName().toString();
         try (var stream = Files.list(dir)) {
             return stream.filter(p -> p.getFileName().toString().startsWith(prefix))
                     .findFirst()
-                    .orElseThrow(() -> new IOException("Download nicht gefunden: " + targetWithoutExtension));
+                    .orElseThrow(() -> new IOException("Download not found: " + targetWithoutExtension));
         }
     }
 
     /**
-     * Grundkommando inklusive der Optionen aus der Umgebungsvariable YTDLP_ARGS
-     * und einer eventuell vorhandenen cookies.txt. Damit lassen sich Videos holen,
-     * die einen angemeldeten Client oder einen bestimmten Player verlangen, ohne
-     * dass dafuer der Code angefasst werden muss.
+     * Base command including the options from the environment variable
+     * YTDLP_ARGS and a cookies.txt if one is present. That makes it possible to
+     * fetch videos which require a signed-in client or a particular player,
+     * without touching the code.
      */
     private static List<String> base() {
         return base(false, false);
@@ -266,8 +266,8 @@ final class YtDlp {
     }
 
     /**
-     * Zerlegt eine Optionszeile wie auf der Kommandozeile. Beruecksichtigt
-     * Anfuehrungszeichen, damit Werte mit Sonderzeichen heil ankommen:
+     * Splits an option line the way a command line would. Honours quotes so
+     * that values with special characters arrive intact:
      * --extractor-args "youtube:player_client=web_safari,default"
      */
     static List<String> tokenize(String raw) {

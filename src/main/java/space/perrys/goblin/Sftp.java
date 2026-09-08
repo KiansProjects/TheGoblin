@@ -10,12 +10,13 @@ import java.util.List;
 import java.util.Properties;
 
 /**
- * Laedt fertige Dateien per SFTP auf einen anderen Rechner.
+ * Uploads finished files to another machine over SFTP.
  *
- * Umgesetzt ueber curl statt ueber ein sftp-Binary: curl ist im Yolk ohnehin
- * vorhanden und kann SFTP, ein openssh-client waere erst nachzuruesten.
+ * Implemented through curl rather than an sftp binary: curl is present in the
+ * yolk anyway and can do SFTP, while an openssh-client would have to be
+ * installed first.
  *
- * Konfiguriert wird in goblin.properties im Arbeitsverzeichnis:
+ * Configured in goblin.properties in the working directory:
  *
  *   sftp.host = 192.168.1.50
  *   sftp.port = 22
@@ -23,8 +24,8 @@ import java.util.Properties;
  *   sftp.key  = /home/container/.ssh/id_ed25519
  *   sftp.base = /srv/media
  *
- * Nur Schluesselauthentifizierung. Passwoerter waeren im Klartext in der Datei
- * und in der Prozessliste sichtbar.
+ * Key authentication only. Passwords would be visible in plain text in the
+ * file and in the process list.
  */
 final class Sftp {
 
@@ -43,7 +44,7 @@ final class Sftp {
     }
 
     /**
-     * @return null, wenn keine oder eine unvollstaendige Konfiguration vorliegt
+     * @return null when there is no configuration or an incomplete one
      */
     static Sftp fromConfig(Path configFile) throws IOException {
         if (!Files.isReadable(configFile)) {
@@ -61,14 +62,14 @@ final class Sftp {
         String keyPath = value(p, "sftp.key");
 
         if (host == null || user == null || base == null || keyPath == null) {
-            System.out.println(configFile + " ist unvollstaendig - "
-                    + "sftp.host, sftp.user, sftp.key und sftp.base werden gebraucht.");
+            System.out.println(configFile + " is incomplete - "
+                    + "sftp.host, sftp.user, sftp.key and sftp.base are required.");
             return null;
         }
 
         Path key = Path.of(keyPath);
         if (!Files.isReadable(key)) {
-            System.out.println("Schluessel nicht lesbar: " + key);
+            System.out.println("Key not readable: " + key);
             return null;
         }
 
@@ -78,7 +79,7 @@ final class Sftp {
             try {
                 port = Integer.parseInt(portValue);
             } catch (NumberFormatException e) {
-                System.out.println("sftp.port ist keine Zahl, nutze 22.");
+                System.out.println("sftp.port is not a number, using 22.");
             }
         }
 
@@ -90,9 +91,9 @@ final class Sftp {
     }
 
     /**
-     * Laedt eine Datei hoch. Fehlende Verzeichnisse legt curl an.
+     * Uploads a file. Missing directories are created by curl.
      *
-     * @param remoteRelative Pfad unterhalb von sftp.base, mit / als Trenner
+     * @param remoteRelative path below sftp.base, with / as the separator
      */
     void upload(Path localFile, String remoteRelative) throws IOException, InterruptedException {
         String url = "sftp://" + host + ":" + port + base + "/" + encodePath(remoteRelative);
@@ -114,7 +115,7 @@ final class Sftp {
         Proc.capture(cmd);
     }
 
-    /** Leerzeichen und Sonderzeichen kodieren, die Trenner aber erhalten. */
+    /** Encodes spaces and special characters but keeps the separators. */
     private static String encodePath(String path) {
         List<String> parts = new ArrayList<>();
         for (String segment : path.split("/")) {

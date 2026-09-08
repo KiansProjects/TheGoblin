@@ -9,26 +9,25 @@ import java.util.Locale;
 import java.util.OptionalDouble;
 
 /**
- * Vergleicht Tonspuren ueber ihren Lautstaerkeverlauf.
+ * Compares audio tracks by their loudness envelope.
  *
- * Statt die Rohsamples zu vergleichen - zu viel Rechnerei und empfindlich
- * gegen unterschiedliche Kodierung - wird der Ton auf 8 kHz Mono
- * heruntergerechnet und daraus je 25 ms ein Effektivwert gebildet. Der
- * daraus entstehende Verlauf ist grob genug, um Kodierungsunterschiede zu
- * ueberstehen, und fein genug, um dieselbe Stelle wiederzufinden.
+ * Instead of comparing the raw samples - too much computation and sensitive to
+ * differing encodings - the audio is downmixed to 8 kHz mono and one RMS value
+ * is formed per 25 ms. The resulting envelope is coarse enough to survive
+ * encoding differences and fine enough to find the same spot again.
  */
 final class AudioProbe {
 
-    /** Laenge eines Fensters in Sekunden. */
+    /** Length of one window in seconds. */
     static final double WINDOW = 0.025;
 
     private static final int SAMPLE_RATE = 8000;
     private static final int SAMPLES_PER_WINDOW = (int) (SAMPLE_RATE * WINDOW);
 
     /**
-     * @param lagSeconds wie weit der Anfang von B im Ende von A gefunden wurde
-     * @param lengthSeconds wie lang die uebereinstimmende Passage ist
-     * @param score Uebereinstimmung von 0 bis 1
+     * @param lagSeconds how far into the end of A the start of B was found
+     * @param lengthSeconds how long the matching passage is
+     * @param score match from 0 to 1
      */
     record Overlap(double lagSeconds, double lengthSeconds, double score) {
     }
@@ -37,11 +36,11 @@ final class AudioProbe {
     }
 
     /**
-     * Lautstaerkeverlauf eines Ausschnitts.
+     * Loudness envelope of a section.
      *
-     * @param start Startzeit in Sekunden, negativ ist nicht erlaubt
-     * @param duration Laenge des Ausschnitts in Sekunden
-     * @return ein Wert je 25 ms, oder ein leeres Feld bei Fehlern
+     * @param start start time in seconds, negative is not allowed
+     * @param duration length of the section in seconds
+     * @return one value per 25 ms, or an empty array on errors
      */
     static double[] envelope(Path media, double start, double duration) {
         byte[] pcm;
@@ -69,13 +68,13 @@ final class AudioProbe {
     }
 
     /**
-     * Sucht den Anfang von {@code head} im Verlauf von {@code tail}.
+     * Searches for the start of {@code head} within the envelope of {@code tail}.
      *
-     * Verglichen wird ueber den normierten Korrelationskoeffizienten, damit
-     * unterschiedliche Aussteuerung nicht stoert.
+     * The comparison runs over the normalised correlation coefficient, so that
+     * differing levels do not interfere.
      *
-     * @param minSeconds kuerzeste Passage, die als Treffer zaehlt
-     * @return leer, wenn nichts Belastbares gefunden wurde
+     * @param minSeconds shortest passage that counts as a match
+     * @return empty when nothing solid was found
      */
     static OptionalDouble bestMatch(double[] tail, double[] head,
                                     double minSeconds, double maxSeconds, double minScore) {
@@ -87,14 +86,13 @@ final class AudioProbe {
         double best = -1;
         int bestLag = -1;
 
-        // Ueberlappungen jenseits von maxSeconds sind bei geschnittenen
-        // Folgen unplausibel und meist ein Fehltreffer: bei periodischer
-        // Musik wiederholt sich der Lautstaerkeverlauf, und dann passt
-        // derselbe Anfang an mehreren Stellen.
+        // Overlaps beyond maxSeconds are implausible for cut episodes and
+        // usually a false match: with periodic music the loudness envelope
+        // repeats, and then the same start fits in several places.
         int firstLag = Math.max(0, tail.length - (int) (maxSeconds / WINDOW));
 
-        // Der Anfang von head kann irgendwo in tail liegen. Ab dort muessen
-        // beide bis zum Ende von tail uebereinstimmen.
+        // The start of head can sit anywhere in tail. From there on both have
+        // to match until the end of tail.
         for (int lag = firstLag; lag <= tail.length - minWindows; lag++) {
             int length = Math.min(tail.length - lag, head.length);
             double score = correlate(tail, lag, head, length);
@@ -107,7 +105,7 @@ final class AudioProbe {
         return (best >= minScore) ? OptionalDouble.of(bestLag * WINDOW) : OptionalDouble.empty();
     }
 
-    /** Normierter Korrelationskoeffizient zweier Abschnitte. */
+    /** Normalised correlation coefficient of two sections. */
     private static double correlate(double[] a, int offsetA, double[] b, int length) {
         double sumA = 0;
         double sumB = 0;
@@ -133,7 +131,7 @@ final class AudioProbe {
         return (denom == 0) ? 0 : num / denom;
     }
 
-    /** Rohes PCM eines Ausschnitts, 16 Bit, Mono, 8 kHz. */
+    /** Raw PCM of a section, 16 bit, mono, 8 kHz. */
     private static byte[] raw(Path media, double start, double duration)
             throws IOException, InterruptedException {
 

@@ -7,61 +7,59 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * TheGoblin - zerlegt ein YouTube-Video anhand seiner Kapitel in einzelne
- * Episodendateien und legt sie so ab, wie Jellyfin sie erwartet.
+ * Entry point and command line.
  */
 public final class Goblin {
 
     private static final String USAGE = """
             TheGoblin
 
-            Befehle:
-              goblin series <url> <name> [optionen]   Video in Episoden zerlegen
-              goblin chapters <url> [--verbose]       nur die erkannten Kapitel anzeigen
-              goblin chapters <url> --formats         verfuegbare Formate auflisten
-              goblin movie <url> <titel> [optionen]   Video als einzelnen Film ablegen
-              goblin series <url> <titel> --movie      dasselbe ueber 'series'
-              goblin audio <url> [optionen]           Tonspur als Musikdatei ablegen
-              goblin concat <url> <titel>             Playlist zu einer Datei zusammenfuegen
-              goblin playlist <url> <name>            fertige series-Zeilen erzeugen
-              goblin playlist <url> <name> --episodes ein Video je Folge laden
-                                                      --from/--to grenzen den
-                                                      Ausschnitt ein,
-                                                      --from-title liest Staffel
-                                                      und Folge aus dem Titel
-              goblin chapters <url> --playlist <name> dasselbe ueber 'chapters'
+            Commands:
+              goblin shows <url> <name> [options]     split a video into episodes
+              goblin chapters <url> [--verbose]       only show the detected chapters
+              goblin chapters <url> --formats         list the available formats
+              goblin movie <url> <title> [options]    store a video as a single movie
+              goblin shows <url> <title> --movie      the same through 'shows'
+              goblin audio <url> [options]            store the audio track as music
+              goblin concat <url> <title>             join a playlist into one file
+              goblin playlist <url> <name>            print ready-made shows lines
+              goblin playlist <url> <name> --episodes one video per episode
+                                                      --from/--to limit the range,
+                                                      --from-title reads season and
+                                                      episode from the title
+              goblin chapters <url> --playlist <name> the same through 'chapters'
 
-            Optionen fuer 'series':
-              -o, --out <pfad>        Zielverzeichnis (Standard: aktuelles Verzeichnis)
-              -s, --season <n>        Staffelnummer (Standard: 1)
-              -e, --start-episode <n> Nummer der ersten Episode (Standard: 1)
-                  --year <jahr>       Erscheinungsjahr, ueberschreibt TMDb
-                  --tmdb-id <id>      TMDb-ID fest vorgeben statt zu suchen
-                  --no-tmdb           weder ID noch Artwork holen
-                  --best              beste Qualitaet statt H.264, landet in mkv
-              -f, --format <sel>      eigener yt-dlp-Formatselektor
-                  --container <ext>   Zielcontainer, Standard mp4
-                  --chapters <datei>  eigene Zeitstempel statt der aus dem Video
-                  --offset <sekunden> alle Grenzen ab der zweiten verschieben
-                  --snap [sekunden]   Grenzen auf den echten Bildwechsel ziehen
-                                      (Suchfenster, Standard 5)
-                  --reencode          exakt schneiden statt auf Keyframes zu runden
-                  --keep              das komplette Video nach dem Schneiden behalten
-                  --upload            fertige Dateien per SFTP hochladen
-                                      (Zugang in goblin.properties)
-                  --keep-local        lokale Kopie nach dem Upload behalten
-                  --dry-run           nur zeigen, was passieren wuerde
-              -v, --verbose           yt-dlp-Kommando und dessen Meldungen zeigen
+            Options for 'shows':
+              -o, --out <path>        target directory (default: current directory)
+              -s, --season <n>        season number (default: 1)
+              -e, --start-episode <n> number of the first episode (default: 1)
+                  --year <year>       release year, overrides TMDb
+                  --tmdb-id <id>      pin the show ID instead of searching
+                  --no-tmdb           fetch neither ID nor artwork
+                  --best              best quality instead of H.264, lands in mkv
+              -f, --format <sel>      custom yt-dlp format selector
+                  --container <ext>   target container, default mp4
+                  --chapters <file>   custom timestamps instead of the video's
+                  --offset <seconds>  shift every boundary but the first
+                  --snap [seconds]    pull boundaries onto the real picture change
+                                      (search window, default 5)
+                  --reencode          cut exactly instead of rounding to keyframes
+                  --keep              keep the whole video after cutting
+                  --upload            upload finished files over SFTP
+                                      (credentials in goblin.properties)
+                  --keep-local        keep the local copy after the upload
+                  --dry-run           only show what would happen
+              -v, --verbose           show the yt-dlp command and its messages
 
-            Umgebung:
-              TMDB_API_KEY            fuer Serien-ID und Artwork (optional)
+            Environment:
+              TMDB_API_KEY            for the show ID and artwork (optional)
             """;
 
     public static void main(String[] args) {
         try {
             System.exit(run(args));
         } catch (Exception e) {
-            System.err.println("Fehler: " + e.getMessage());
+            System.err.println("Error: " + e.getMessage());
             System.exit(1);
         }
     }
@@ -73,14 +71,14 @@ public final class Goblin {
         }
 
         return switch (args[0]) {
-            case "series" -> series(args);
+            case "shows" -> shows(args);
             case "chapters" -> chapters(args);
             case "playlist" -> playlist(args);
             case "movie" -> movie(args);
             case "concat" -> concat(args);
             case "audio" -> audio(args);
             default -> {
-                System.err.println("Unbekannter Befehl: " + args[0]);
+                System.err.println("Unknown command: " + args[0]);
                 System.err.print(USAGE);
                 yield 2;
             }
@@ -93,7 +91,7 @@ public final class Goblin {
 
     private static int chapters(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Aufruf: goblin chapters <url> [--verbose]");
+            System.err.println("Usage: goblin chapters <url> [--verbose]");
             return 2;
         }
         requireTools(false);
@@ -116,8 +114,8 @@ public final class Goblin {
         }
 
         if (playlistMode) {
-            // Damit die Playlist auch dann geht, wenn der Konsolen-Wrapper
-            // nur 'chapters' durchlaesst.
+            // So that playlists still work when the console wrapper only lets
+            // 'chapters' through.
             return playlist(new String[] {"playlist", args[1], nameFrom(args)});
         }
 
@@ -125,7 +123,7 @@ public final class Goblin {
         List<Chapter> found = resolveChapters(meta);
 
         if (found.isEmpty()) {
-            System.out.println("Keine Kapitel gefunden.");
+            System.out.println("No chapters found.");
             return 1;
         }
 
@@ -141,10 +139,10 @@ public final class Goblin {
 
 
     /**
-     * Ein Video je Episode. Anders als bei series wird nichts geschnitten -
-     * jedes Video der Playlist wird einmal geladen und als eine Folge abgelegt.
-     * Vorhandene Dateien werden uebersprungen, damit ein abgebrochener Lauf
-     * fortgesetzt werden kann statt von vorn anzufangen.
+     * One video per episode. Unlike shows, nothing is cut - every video of the
+     * playlist is downloaded once and stored as a single episode. Existing
+     * files are skipped so that an aborted run can be resumed instead of
+     * starting over.
      */
     private static int episodes(List<String[]> entries, String name, Path out,
                                 int season, int startEpisode, Integer year, Integer tmdbId,
@@ -165,7 +163,7 @@ public final class Goblin {
                             series.name(), series.year(), series.id());
                 }
             } catch (IOException e) {
-                System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
+                System.out.println("TMDb unreachable, carrying on without it: " + e.getMessage());
             }
         }
 
@@ -174,11 +172,12 @@ public final class Goblin {
 
         Path seriesDir = out.resolve(Naming.seriesFolder(name, folderYear, folderId));
 
-        // Zielpfade vorab bestimmen. Mit --from-title kann jeder Eintrag in
-        // einer anderen Staffel landen, deshalb pro Eintrag ein eigener Pfad.
-        // Eintraege ohne erkennbare Nummer werden mit --from-title nicht geraten.
-        // Ein durchnummerierter Rueckfall wuerde mit erkannten Folgen kollidieren
-        // und diese ueberschreiben - lieber melden und der Hand ueberlassen.
+        // Determine the target paths up front. With --from-title every entry
+        // can land in a different season, so each entry gets its own path.
+        // Entries without a recognisable number are not guessed at with
+        // --from-title. A sequentially numbered fallback would collide with
+        // correctly detected episodes and overwrite them - better to report
+        // them and leave them to the operator.
         List<Path> targets = new ArrayList<>();
         List<String[]> usable = new ArrayList<>();
         List<String> unparsed = new ArrayList<>();
@@ -207,10 +206,10 @@ public final class Goblin {
 
         entries = usable;
 
-        System.out.printf("%d Videos -> %s%n%n", entries.size(), seriesDir);
+        System.out.printf("%d videos -> %s%n%n", entries.size(), seriesDir);
 
         if (!unparsed.isEmpty()) {
-            System.out.printf("%d ohne erkennbare Nummer, uebersprungen:%n", unparsed.size());
+            System.out.printf("%d without a recognisable number, skipped:%n", unparsed.size());
             for (String t : unparsed) {
                 System.out.println("  " + t);
             }
@@ -218,7 +217,7 @@ public final class Goblin {
         }
 
         if (entries.isEmpty()) {
-            System.err.println("Kein Video mit erkennbarer Nummer. Ohne --from-title versuchen.");
+            System.err.println("No video with a recognisable number. Try without --from-title.");
             return 1;
         }
 
@@ -227,17 +226,17 @@ public final class Goblin {
                 System.out.println("  " + seriesDir.relativize(t));
             }
             System.out.println();
-            System.out.println("Dry-Run, es wurde nichts geschrieben.");
+            System.out.println("Dry run, nothing was written.");
             return 0;
         }
 
         Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
         if (upload && sftp == null) {
-            System.err.println("--upload gesetzt, aber " + CONFIG + " fehlt oder ist unvollstaendig.");
+            System.err.println("--upload was given, but " + CONFIG + " is missing or incomplete.");
             return 2;
         }
         if (sftp != null) {
-            System.out.println("Upload nach " + sftp.describe());
+            System.out.println("Uploading to " + sftp.describe());
             System.out.println();
         }
 
@@ -250,7 +249,7 @@ public final class Goblin {
             String fileName = target.getFileName().toString();
 
             if (!overwrite && Files.exists(target)) {
-                System.out.println("  vorhanden: " + fileName);
+                System.out.println("  exists: " + fileName);
                 skipped++;
                 continue;
             }
@@ -265,8 +264,8 @@ public final class Goblin {
                 uploadIfConfigured(sftp, out, target, keepLocal);
                 done++;
             } catch (IOException e) {
-                // Ein kaputtes Video soll die restlichen 50 nicht verhindern
-                System.out.println("    fehlgeschlagen: " + e.getMessage());
+                // One broken video should not stop the other 50
+                System.out.println("    failed: " + e.getMessage());
                 failed++;
             }
         }
@@ -276,10 +275,10 @@ public final class Goblin {
         }
 
         System.out.println();
-        System.out.printf("Fertig. %d geladen, %d uebersprungen, %d fehlgeschlagen.%n",
+        System.out.printf("Done. %d downloaded, %d skipped, %d failed.%n",
                 done, skipped, failed);
         if (failed > 0) {
-            System.out.println("Denselben Befehl nochmal aufrufen - Vorhandenes wird uebersprungen.");
+            System.out.println("Run the same command again - what is already there gets skipped.");
         }
         return failed > 0 ? 1 : 0;
     }
@@ -291,23 +290,23 @@ public final class Goblin {
     }
 
     // ------------------------------------------------------------------
-    // goblin movie <url> <titel>
+    // goblin movie <url> <title>
     // ------------------------------------------------------------------
 
     /**
-     * Laedt ein Video als einzelnen Film. Kein Schneiden, keine Kapitel -
-     * nur Herunterladen und so ablegen, wie Jellyfins Film-Scanner es erwartet.
+     * Downloads a video as a single movie. No cutting, no chapters - just
+     * download it and store it the way Jellyfin's movie scanner expects.
      */
     private static int movie(String[] args) throws Exception {
         if (args.length < 3) {
-            System.err.println("Aufruf: goblin movie <url> <titel> [optionen]");
+            System.err.println("Usage: goblin movie <url> <title> [options]");
             return 2;
         }
 
         String url = args[1];
         String title = args[2];
 
-        Path out = Path.of("output/filme");
+        Path out = Path.of("output/movies");
         Integer year = null;
         Integer tmdbId = null;
         boolean useTmdb = true;
@@ -336,7 +335,7 @@ public final class Goblin {
                 case "--format", "-f" -> format = args[++i];
                 case "--container" -> container = args[++i];
                 default -> {
-                    System.err.println("Unbekannte Option: " + args[i]);
+                    System.err.println("Unknown option: " + args[i]);
                     return 2;
                 }
             }
@@ -344,7 +343,7 @@ public final class Goblin {
 
         requireTools(!dryRun);
 
-        System.out.println("Metadaten abrufen ...");
+        System.out.println("Fetching metadata ...");
         VideoMeta meta = YtDlp.metadata(url, verbose);
         System.out.println("Video: " + meta.title());
 
@@ -357,11 +356,11 @@ public final class Goblin {
                     System.out.printf("TMDb: %s (%s), ID %d%n", film.name(), film.year(), film.id());
                 }
             } catch (IOException e) {
-                System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
+                System.out.println("TMDb unreachable, carrying on without it: " + e.getMessage());
             }
         } else if (useTmdb) {
-            System.out.println("Kein TMDb-Key (tmdb.api_key in " + CONFIG
-                    + " oder TMDB_API_KEY), ueberspringe Artwork.");
+            System.out.println("No TMDb key (tmdb.api_key in " + CONFIG
+                    + " or TMDB_API_KEY), skipping artwork.");
         }
 
         Integer folderYear = (year != null) ? year : (film != null ? film.year() : null);
@@ -376,7 +375,7 @@ public final class Goblin {
         System.out.println();
 
         if (dryRun) {
-            System.out.println("Dry-Run, es wurde nichts geschrieben.");
+            System.out.println("Dry run, nothing was written.");
             return 0;
         }
 
@@ -384,11 +383,11 @@ public final class Goblin {
 
         Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
         if (upload && sftp == null) {
-            System.err.println("--upload gesetzt, aber " + CONFIG + " fehlt oder ist unvollstaendig.");
+            System.err.println("--upload was given, but " + CONFIG + " is missing or incomplete.");
             return 2;
         }
 
-        System.out.println("Video laden ...");
+        System.out.println("Downloading video ...");
         String stem = fileName.substring(0, fileName.lastIndexOf('.'));
         YtDlp.download(url, movieDir.resolve(stem), format, container);
 
@@ -399,7 +398,7 @@ public final class Goblin {
         uploadIfConfigured(sftp, out, movieDir.resolve(fileName), keepLocal);
 
         System.out.println();
-        System.out.println("Fertig. " + movieDir.resolve(fileName));
+        System.out.println("Done. " + movieDir.resolve(fileName));
         return 0;
     }
 
@@ -410,23 +409,23 @@ public final class Goblin {
     // ------------------------------------------------------------------
 
     /**
-     * Zieht die Tonspur aus einem Video oder einer Playlist.
+     * Extracts the audio track from a video or a playlist.
      *
-     * Ablage nach dem ueblichen Muster fuer Musiksammlungen:
-     * Interpret / Album / NN - Titel.ext
+     * Stored in the usual layout for music collections:
+     * Artist / Album / NN - Title.ext
      *
-     * Interpret und Album kommen aus den Angaben oder ersatzweise aus Kanal
-     * und Playlisttitel.
+     * Artist and album come from the given values, or failing that from the
+     * channel and the playlist title.
      */
     private static int audio(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Aufruf: goblin audio <url> [optionen]");
+            System.err.println("Usage: goblin audio <url> [options]");
             return 2;
         }
 
         String url = args[1];
 
-        Path out = Path.of("output/musik");
+        Path out = Path.of("output/music");
         String artist = null;
         String album = null;
         String format = "mp3";
@@ -444,7 +443,7 @@ public final class Goblin {
                 case "--chapters" -> splitChapters = true;
                 case "--dry-run" -> dryRun = true;
                 default -> {
-                    System.err.println("Unbekannte Option: " + args[i]);
+                    System.err.println("Unknown option: " + args[i]);
                     return 2;
                 }
             }
@@ -468,7 +467,7 @@ public final class Goblin {
             }
         }
 
-        // Was sich nicht ermitteln liess, ueberlaesst das Muster yt-dlp.
+        // Whatever could not be determined is left to yt-dlp's own pattern.
         String artistDir = (artist != null) ? Naming.sanitize(artist) : "%(artist,uploader)s";
         String albumDir = (album != null) ? Naming.sanitize(album) : "%(album,title)s";
 
@@ -481,46 +480,45 @@ public final class Goblin {
 
         String template = out.resolve(artistDir).resolve(albumDir).resolve(fileName).toString();
 
-        System.out.println("Interpret: " + (artist != null ? artist : "(aus den Metadaten)"));
-        System.out.println("Album:     " + (album != null ? album : "(aus den Metadaten)"));
-        System.out.println("Format:    " + ("best".equalsIgnoreCase(format)
-                ? "Originalspur, keine Neukodierung" : format));
-        System.out.println("Muster:    " + template);
+        System.out.println("Artist:  " + (artist != null ? artist : "(from the metadata)"));
+        System.out.println("Album:   " + (album != null ? album : "(from the metadata)"));
+        System.out.println("Format:  " + ("best".equalsIgnoreCase(format)
+                ? "original track, no re-encoding" : format));
+        System.out.println("Pattern: " + template);
         System.out.println();
 
         if (dryRun) {
-            System.out.println("Dry-Run, es wurde nichts geladen.");
+            System.out.println("Dry run, nothing was downloaded.");
             return 0;
         }
 
         if (!"best".equalsIgnoreCase(format) && List.of("flac", "wav").contains(format.toLowerCase())) {
-            System.out.println("Hinweis: YouTube liefert bereits verlustbehaftet. "
-                    + format + " macht die Dateien groesser, nicht besser.");
+            System.out.println("Note: YouTube already serves lossy audio. "
+                    + format + " makes the files bigger, not better.");
             System.out.println();
         }
 
         YtDlp.audio(url, format, quality, template, splitChapters);
 
         System.out.println();
-        System.out.println("Fertig. " + out.resolve(artistDir).resolve(albumDir));
+        System.out.println("Done. " + out.resolve(artistDir).resolve(albumDir));
         return 0;
     }
 
     // ------------------------------------------------------------------
-    // goblin concat <playlist-url> <titel>
+    // goblin concat <playlist-url> <title>
     // ------------------------------------------------------------------
 
     /**
-     * Fuegt die Videos einer Playlist zu einer Datei zusammen.
+     * Joins the videos of a playlist into one file.
      *
-     * Vor dem Zusammenfuegen wird je Teil geprueft, ob am Ende ein Abspann
-     * laeuft und ob der naechste Teil mit dem Ende des vorherigen beginnt.
-     * Beides wird weggeschnitten, damit keine Dopplung im fertigen Video
-     * landet.
+     * Before joining, each part is checked for closing credits at the end and
+     * for whether the next part begins with the end of the previous one. Both
+     * are cut away so that no duplication ends up in the finished video.
      */
     private static int concat(String[] args) throws Exception {
         if (args.length < 3) {
-            System.err.println("Aufruf: goblin concat <playlist-url> <titel> [optionen]");
+            System.err.println("Usage: goblin concat <playlist-url> <title> [options]");
             return 2;
         }
 
@@ -531,9 +529,9 @@ public final class Goblin {
         double outroFixed = -1;
         boolean detectOutro = true;
         double overlapWindow = 90;
-        // 1 s reicht: bei echter Ueberlappung liegt die Korrelation nahe 1,
-        // Zufallstreffer bleiben deutlich darunter. Gemessen an einem
-        // Testuebergang: echter Treffer 0.999, bester Fehltreffer 0.80.
+        // 1 s is enough: with a real overlap the correlation is close to 1,
+        // chance matches stay well below that. Measured on one test
+        // transition: real match 0.999, best false match 0.80.
         double minOverlap = 1;
         double maxOverlap = 30;
         double minScore = 0.90;
@@ -561,7 +559,7 @@ public final class Goblin {
                 case "--format", "-f" -> format = args[++i];
                 case "--container" -> container = args[++i];
                 default -> {
-                    System.err.println("Unbekannte Option: " + args[i]);
+                    System.err.println("Unknown option: " + args[i]);
                     return 2;
                 }
             }
@@ -571,18 +569,18 @@ public final class Goblin {
 
         List<String[]> entries = YtDlp.playlist(url);
         if (entries.size() < 2) {
-            System.err.println("Weniger als zwei Videos - dafuer lohnt concat nicht.");
+            System.err.println("Fewer than two videos - concat is not worth it for that.");
             return 1;
         }
 
-        System.out.printf("%d Teile%n", entries.size());
+        System.out.printf("%d parts%n", entries.size());
         if (dryRun) {
             for (int i = 0; i < entries.size(); i++) {
                 System.out.printf("  %2d. %s%n", i + 1,
                         entries.get(i)[1].isBlank() ? entries.get(i)[0] : entries.get(i)[1]);
             }
             System.out.println();
-            System.out.println("Dry-Run, es wurde nichts geladen.");
+            System.out.println("Dry run, nothing was downloaded.");
             return 0;
         }
 
@@ -591,19 +589,19 @@ public final class Goblin {
         Files.createDirectories(out);
 
         try {
-            // 1. Alle Teile laden
+            // 1. Download every part
             List<Path> parts = new ArrayList<>();
             for (int i = 0; i < entries.size(); i++) {
-                System.out.printf("Teil %d/%d laden ...%n", i + 1, entries.size());
+                System.out.printf("Downloading part %d/%d ...%n", i + 1, entries.size());
                 parts.add(YtDlp.download("https://youtu.be/" + entries.get(i)[0],
                         work.resolve(String.format("part-%03d", i + 1)), format, container));
             }
 
-            // 2. Grenzen bestimmen
+            // 2. Determine the boundaries
             System.out.println();
-            System.out.println("Uebergaenge pruefen ...");
+            System.out.println("Checking transitions ...");
 
-            List<double[]> cuts = new ArrayList<>(); // je Teil: {start, ende}
+            List<double[]> cuts = new ArrayList<>(); // per part: {start, end}
             for (int i = 0; i < parts.size(); i++) {
                 double duration = Ffprobe.duration(parts.get(i));
                 double start = 0;
@@ -639,22 +637,22 @@ public final class Goblin {
                 }
 
                 cuts.add(new double[] {start, end});
-                System.out.printf("  Teil %2d: %s bis %s%s%s%n", i + 1,
+                System.out.printf("  Part %2d: %s to %s%s%s%n", i + 1,
                         Chapter.timecode(start), Chapter.timecode(end),
-                        start > 0 ? String.format("  (%.1fs Anfang doppelt)", start) : "",
-                        end < duration ? String.format("  (%.1fs Abspann)", duration - end) : "");
+                        start > 0 ? String.format("  (%.1fs duplicate start)", start) : "",
+                        end < duration ? String.format("  (%.1fs credits)", duration - end) : "");
             }
 
-            // 3. Teile zuschneiden und aneinanderhaengen
+            // 3. Trim the parts and join them
             System.out.println();
-            System.out.println("Zusammenfuegen ...");
+            System.out.println("Joining ...");
 
             List<Path> segments = new ArrayList<>();
             for (int i = 0; i < parts.size(); i++) {
                 double start = cuts.get(i)[0];
                 double end = cuts.get(i)[1];
                 if (end - start < 1.0) {
-                    System.out.printf("  Teil %d ist nach dem Schnitt leer, uebersprungen.%n", i + 1);
+                    System.out.printf("  Part %d is empty after the cut, skipped.%n", i + 1);
                     continue;
                 }
                 Path segment = work.resolve(String.format("seg-%03d.%s", i + 1, container));
@@ -665,7 +663,7 @@ public final class Goblin {
             Ffmpeg.concat(segments, work.resolve("list.txt"), target);
 
             if (keepParts) {
-                System.out.println("Teile bleiben in " + work);
+                System.out.println("Parts remain in " + work);
             }
         } finally {
             if (!keepParts) {
@@ -674,7 +672,7 @@ public final class Goblin {
         }
 
         System.out.println();
-        System.out.println("Fertig. " + target);
+        System.out.println("Done. " + target);
         return 0;
     }
 
@@ -683,14 +681,14 @@ public final class Goblin {
     // ------------------------------------------------------------------
 
     /**
-     * Liest eine Playlist und druckt fuer jedes Video eine fertige
-     * series-Zeile. Die Staffelnummer steigt mit der Position - das passt,
-     * wenn ein Video je Staffel in der Playlist liegt. Sonst die Zeilen vor
-     * dem Ausfuehren anpassen.
+     * Reads a playlist and prints a ready-made shows line for every video. The
+     * season number rises with the position - which fits when the playlist
+     * holds one video per season. Otherwise adjust the lines before running
+     * them.
      */
     private static int playlist(String[] args) throws Exception {
         if (args.length < 3) {
-            System.err.println("Aufruf: goblin playlist <url> <name> [optionen]");
+            System.err.println("Usage: goblin playlist <url> <name> [options]");
             return 2;
         }
         requireTools(false);
@@ -698,7 +696,7 @@ public final class Goblin {
         String url = args[1];
         String name = args[2];
 
-        String out = "output/serien";
+        String out = "output/shows";
         int firstSeason = 1;
         String extra = "--snap --reencode";
 
@@ -745,7 +743,7 @@ public final class Goblin {
                 case "--format", "-f" -> format = args[++i];
                 case "--container" -> container = args[++i];
                 default -> {
-                    System.err.println("Unbekannte Option: " + args[i]);
+                    System.err.println("Unknown option: " + args[i]);
                     return 2;
                 }
             }
@@ -753,7 +751,7 @@ public final class Goblin {
 
         List<String[]> entries = YtDlp.playlist(url);
         if (entries.isEmpty()) {
-            System.err.println("Die Playlist enthaelt keine abrufbaren Videos.");
+            System.err.println("The playlist contains no retrievable videos.");
             return 1;
         }
 
@@ -761,13 +759,13 @@ public final class Goblin {
         int firstIndex = Math.max(1, from) - 1;
         int lastIndex = Math.min(total, to);
         if (firstIndex >= lastIndex) {
-            System.err.printf("Leerer Ausschnitt: %d Videos vorhanden, --from %d --to %d%n",
+            System.err.printf("Empty range: %d videos present, --from %d --to %d%n",
                     total, from, to);
             return 2;
         }
         if (firstIndex > 0 || lastIndex < total) {
             entries = entries.subList(firstIndex, lastIndex);
-            System.out.printf("Ausschnitt %d bis %d von %d Videos%n", firstIndex + 1, lastIndex, total);
+            System.out.printf("Range %d to %d of %d videos%n", firstIndex + 1, lastIndex, total);
         }
 
         if (episodeMode) {
@@ -776,32 +774,32 @@ public final class Goblin {
                     upload, keepLocal, format, container);
         }
 
-        System.out.printf("%d Videos in der Playlist%n%n", entries.size());
+        System.out.printf("%d videos in the playlist%n%n", entries.size());
         for (int i = 0; i < entries.size(); i++) {
             String title = entries.get(i)[1];
             System.out.printf("# %d. %s%n", firstIndex + i + 1,
-                    title.isBlank() ? "(kein Titel)" : title);
-            System.out.printf("series https://youtu.be/%s \"%s\" --out %s --season %d %s%n%n",
+                    title.isBlank() ? "(no title)" : title);
+            System.out.printf("shows https://youtu.be/%s \"%s\" --out %s --season %d %s%n%n",
                     entries.get(i)[0], name, out, firstSeason + i, extra);
         }
 
-        System.out.println("Zeilen pruefen, dann einzeln ausfuehren.");
+        System.out.println("Check the lines, then run them one by one.");
         return 0;
     }
 
     // ------------------------------------------------------------------
-    // goblin series <url> <name>
+    // goblin shows <url> <name>
     // ------------------------------------------------------------------
 
-    private static int series(String[] args) throws Exception {
+    private static int shows(String[] args) throws Exception {
         if (args.length < 3) {
-            System.err.println("Aufruf: goblin series <url> <name> [optionen]");
+            System.err.println("Usage: goblin shows <url> <name> [options]");
             return 2;
         }
 
         for (String a : args) {
             if (a.equals("--movie")) {
-                // Damit Filme auch dann gehen, wenn der Wrapper nur 'series' kennt.
+                // So that movies still work when the wrapper only knows 'shows'.
                 String[] forwarded = args.clone();
                 forwarded[0] = "movie";
                 return movie(forwarded);
@@ -855,7 +853,7 @@ public final class Goblin {
                         : 5.0;
                 case "--container" -> container = args[++i];
                 default -> {
-                    System.err.println("Unbekannte Option: " + args[i]);
+                    System.err.println("Unknown option: " + args[i]);
                     return 2;
                 }
             }
@@ -863,36 +861,36 @@ public final class Goblin {
 
         requireTools(!dryRun);
 
-        // 1. Metadaten und Kapitel
-        System.out.println("Metadaten abrufen ...");
+        // 1. Metadata and chapters
+        System.out.println("Fetching metadata ...");
         VideoMeta meta = YtDlp.metadata(url, verbose);
 
         List<Chapter> parts;
         if (chapterFile != null) {
             parts = ChapterParser.parse(Files.readString(chapterFile), meta.duration());
             if (parts.isEmpty()) {
-                System.err.println("Aus " + chapterFile + " liessen sich keine Zeitstempel lesen.");
+                System.err.println("No timestamps could be read from " + chapterFile + ".");
                 return 1;
             }
-            System.out.println("Kapitel aus " + chapterFile);
+            System.out.println("Chapters from " + chapterFile);
         } else {
             parts = resolveChapters(meta);
         }
 
         if (offset != 0) {
             parts = shift(parts, offset, meta.duration());
-            System.out.printf("Versatz: %+.1f s ab dem zweiten Abschnitt%n", offset);
+            System.out.printf("Offset: %+.1f s from the second section on%n", offset);
         }
 
         if (parts.isEmpty()) {
             System.err.println("""
-                    Keine Kapitel gefunden. Das Video hat weder YouTube-Kapitel noch
-                    erkennbare Zeitstempel in der Beschreibung.""");
+                    No chapters found. The video has neither YouTube chapters nor
+                    recognisable timestamps in its description.""");
             return 1;
         }
-        System.out.printf("%d Abschnitte in \"%s\"%n", parts.size(), meta.title());
+        System.out.printf("%d sections in \"%s\"%n", parts.size(), meta.title());
 
-        // 2. Serie in der Datenbank nachschlagen
+        // 2. Look the show up in the database
         Tmdb.Series series = null;
         Tmdb tmdb = useTmdb ? Tmdb.from(CONFIG) : null;
         if (tmdb != null) {
@@ -903,11 +901,11 @@ public final class Goblin {
                             series.name(), series.year(), series.id());
                 }
             } catch (IOException e) {
-                System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
+                System.out.println("TMDb unreachable, carrying on without it: " + e.getMessage());
             }
         } else if (useTmdb) {
-            System.out.println("Kein TMDb-Key (tmdb.api_key in " + CONFIG
-                    + " oder TMDB_API_KEY), ueberspringe Artwork.");
+            System.out.println("No TMDb key (tmdb.api_key in " + CONFIG
+                    + " or TMDB_API_KEY), skipping artwork.");
         }
 
         Integer folderYear = (year != null) ? year : (series != null ? series.year() : null);
@@ -916,7 +914,7 @@ public final class Goblin {
         Path seriesDir = out.resolve(Naming.seriesFolder(name, folderYear, folderId));
         Path seasonDir = seriesDir.resolve(Naming.seasonFolder(season));
 
-        // 3. Vorschau
+        // 3. Preview
         System.out.println();
         System.out.println(seasonDir);
         for (int i = 0; i < parts.size(); i++) {
@@ -926,35 +924,35 @@ public final class Goblin {
         System.out.println();
 
         if (dryRun) {
-            System.out.println("Dry-Run, es wurde nichts geschrieben.");
+            System.out.println("Dry run, nothing was written.");
             return 0;
         }
 
         Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
         if (upload && sftp == null) {
-            System.err.println("--upload gesetzt, aber " + CONFIG + " fehlt oder ist unvollstaendig.");
+            System.err.println("--upload was given, but " + CONFIG + " is missing or incomplete.");
             return 2;
         }
         if (sftp != null) {
-            System.out.println("Upload nach " + sftp.describe());
+            System.out.println("Uploading to " + sftp.describe());
         }
 
         Files.createDirectories(seasonDir);
 
-        // 4. Video einmal komplett laden
+        // 4. Download the whole video once
         Path work = Files.createTempDirectory(workRoot(), "goblin-");
         Path source;
         try {
-            System.out.println("Video laden ...");
+            System.out.println("Downloading video ...");
             source = YtDlp.download(url, work.resolve("source"), format, container);
 
-            // 5. Grenzen auf den tatsaechlichen Bildwechsel ziehen
+            // 5. Pull the boundaries onto the actual picture change
             if (snapWindow > 0) {
                 parts = snap(source, parts, snapWindow, meta.duration());
             }
 
-            // 6. Schneiden
-            System.out.println("Schneiden ...");
+            // 6. Cut
+            System.out.println("Cutting ...");
             for (int i = 0; i < parts.size(); i++) {
                 Chapter c = parts.get(i);
                 Path target = seasonDir.resolve(
@@ -967,7 +965,7 @@ public final class Goblin {
             if (keep) {
                 Path kept = seriesDir.resolve("source-" + meta.id() + "." + container);
                 Files.move(source, kept);
-                System.out.println("Quelle behalten: " + kept);
+                System.out.println("Source kept: " + kept);
             }
         } finally {
             if (!keep) {
@@ -981,17 +979,17 @@ public final class Goblin {
         }
 
         System.out.println();
-        System.out.println("Fertig. " + parts.size() + " Episoden in " + seasonDir);
+        System.out.println("Done. " + parts.size() + " episodes in " + seasonDir);
         return 0;
     }
 
     // ------------------------------------------------------------------
 
     /**
-     * Arbeitsverzeichnis fuer den Download. Bewusst NICHT /tmp: in einem
-     * Wings-Container ist das ein tmpfs mit wenigen hundert Megabyte, und ein
-     * Video plus Tonspur plus gemuxte Datei sprengt das sofort. Stattdessen das
-     * Serververzeichnis, das dem Disk-Limit des Servers unterliegt.
+     * Working directory for the download. Deliberately NOT /tmp: in a Wings
+     * container that is a tmpfs of a few hundred megabytes, and a video plus
+     * audio track plus the muxed file blows through it immediately. The server
+     * directory is used instead, which is subject to the server's disk limit.
      */
     private static Path workRoot() throws IOException {
         String override = System.getenv("GOBLIN_TMP");
@@ -1002,16 +1000,16 @@ public final class Goblin {
         return root;
     }
 
-    /** Konfigurationsdatei fuer den SFTP-Upload. */
+    /** Configuration file for the SFTP upload. */
     private static final Path CONFIG = Path.of("goblin.properties");
 
     /**
-     * Laedt eine fertige Datei hoch und loescht sie danach lokal. Ohne
-     * konfigurierten SFTP-Zugang passiert nichts und die Datei bleibt liegen.
+     * Uploads a finished file and deletes it locally afterwards. Without a
+     * configured SFTP target nothing happens and the file stays where it is.
      *
-     * @param root    Verzeichnis, relativ zu dem der Zielpfad gebildet wird
-     * @param keepLocal true laesst die lokale Kopie stehen
-     * @return true, wenn hochgeladen wurde
+     * @param root    directory the remote path is formed relative to
+     * @param keepLocal true leaves the local copy in place
+     * @return true when the upload happened
      */
     private static boolean uploadIfConfigured(Sftp sftp, Path root, Path file, boolean keepLocal) {
         if (sftp == null) {
@@ -1023,30 +1021,30 @@ public final class Goblin {
             if (!keepLocal) {
                 Files.deleteIfExists(file);
             }
-            System.out.println("    hochgeladen: " + remote);
+            System.out.println("    uploaded: " + remote);
             return true;
         } catch (IOException | InterruptedException e) {
-            System.out.println("    Upload fehlgeschlagen, Datei bleibt lokal: " + e.getMessage());
+            System.out.println("    upload failed, file stays local: " + e.getMessage());
             return false;
         }
     }
 
-    /** Nimmt den ersten Nicht-Options-Parameter nach der URL als Serienname. */
+    /** Takes the first non-option argument after the URL as the show name. */
     private static String nameFrom(String[] args) {
         for (int i = 2; i < args.length; i++) {
             if (!args[i].startsWith("-")) {
                 return args[i];
             }
         }
-        return "Serie";
+        return "Show";
     }
 
     /**
-     * Zieht jede Abschnittsgrenze auf den Bildwechsel, der ihr am naechsten
-     * liegt. Der erste Abschnitt bleibt bei 0.
+     * Pulls every section boundary onto the picture change closest to it. The
+     * first section stays at 0.
      */
     private static List<Chapter> snap(Path video, List<Chapter> parts, double window, double duration) {
-        System.out.printf("Grenzen suchen (Fenster %.0f s) ...%n", window);
+        System.out.printf("Searching for boundaries (window %.0f s) ...%n", window);
 
         List<Double> starts = new ArrayList<>();
         starts.add(parts.get(0).start());
@@ -1056,9 +1054,9 @@ public final class Goblin {
             CutDetect.Result found = CutDetect.nearest(video, wanted, window);
 
             String note = switch (found.source()) {
-                case BLACK -> "Schwarzbild";
-                case SCENE -> "Szenenwechsel";
-                case NONE -> "nichts gefunden, bleibt";
+                case BLACK -> "black frame";
+                case SCENE -> "scene change";
+                case NONE -> "nothing found, unchanged";
             };
             System.out.printf("  %s -> %s  (%+.2f s, %s)%n",
                     Chapter.timecode(wanted), Chapter.timecode(found.time()),
@@ -1079,10 +1077,10 @@ public final class Goblin {
     }
 
     /**
-     * Verschiebt alle Abschnittsgrenzen ausser der allerersten. Der erste
-     * Abschnitt startet immer bei 0 - sonst wuerde der Anfang des Videos
-     * verlorengehen. Gedacht fuer den Fall, dass die Zeitstempel in der
-     * Beschreibung durchgehend ein paar Sekunden zu frueh liegen.
+     * Shifts every section boundary except the very first. The first section
+     * always starts at 0 - otherwise the beginning of the video would be lost.
+     * Meant for the case where the timestamps in the description are all a few
+     * seconds too early.
      */
     private static List<Chapter> shift(List<Chapter> parts, double offset, double duration) {
         List<Double> starts = new ArrayList<>();
@@ -1102,7 +1100,7 @@ public final class Goblin {
         return shifted;
     }
 
-    /** YouTube-Kapitel haben Vorrang, sonst die Beschreibung durchsuchen. */
+    /** YouTube chapters take priority, otherwise search the description. */
     private static List<Chapter> resolveChapters(VideoMeta meta) {
         if (!meta.chapters().isEmpty()) {
             return meta.chapters();
@@ -1119,7 +1117,7 @@ public final class Goblin {
             missing.add("ffmpeg");
         }
         if (!missing.isEmpty()) {
-            throw new IllegalStateException("Nicht im PATH gefunden: " + String.join(", ", missing));
+            throw new IllegalStateException("Not found on the PATH: " + String.join(", ", missing));
         }
     }
 
@@ -1130,11 +1128,11 @@ public final class Goblin {
                         try {
                             Files.deleteIfExists(p);
                         } catch (IOException ignored) {
-                            // Aufraeumen ist best effort
+                            // Cleanup is best effort
                         }
                     });
         } catch (IOException ignored) {
-            // dito
+            // ditto
         }
     }
 }

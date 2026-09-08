@@ -1,100 +1,104 @@
-# Brief für KI-Agenten in diesem Repo
+# Brief for AI agents working on this repo
 
-Vor Änderungen lesen.
+Read this before changing anything.
 
-## Was das ist
+## What this is
 
-Ein Java-CLI, das YouTube-Material in eine Form bringt, die Jellyfin,
-Navidrome und Plex direkt einlesen. Ursprungsfall: ein Kanal lädt eine
-ganze Staffel als *ein* Video mit Kapitelmarken hoch — `goblin series`
-schneidet daraus einzelne Episodendateien mit korrektem `S01E02`-Schema.
-Dazu kommen `movie`, `audio`, `concat`, `playlist` und `chapters`.
+A Java CLI that turns YouTube material into a shape Jellyfin, Navidrome and
+Plex read directly. The original case: a channel uploads a whole season as
+*one* video with chapter marks — `goblin shows` cuts individual episode files
+out of it, named to the `S01E02` scheme. On top of that come `movie`, `audio`,
+`concat`, `playlist` and `chapters`.
 
-## Nicht verhandelbar
+## Non-negotiables
 
-* **Keine externen Java-Dependencies.** Das Projekt baut mit `javac` und
-  sonst nichts — deshalb der eigene JSON-Parser in `Json.java`. Eine
-  Bibliothek hinzuzufügen kostet den `./build.sh`-Weg und macht Maven zur
-  Pflicht. Wenn etwas unbedingt eine Dependency braucht, ist das eine
-  Entscheidung für den Repo-Besitzer, nicht für einen Agenten.
-* **Das Arbeitsverzeichnis liegt nicht in `/tmp`.** In einem
-  Wings-Container ist `/tmp` ein tmpfs mit wenigen hundert Megabyte, und
-  Video plus Tonspur plus gemuxte Datei sprengen das sofort. Siehe
-  `Goblin.workRoot()`, überschreibbar über `GOBLIN_TMP`.
-* **Standardformat ist H.264/AAC in mp4**, nicht die beste verfügbare
-  Qualität. VP9 und AV1 zwingen den Medienserver zum Transcodieren, bei
-  AV1 mangels Hardware-Decoder komplett auf der CPU. `--best` gibt es für
-  den bewussten Gegenfall.
-* **Nichts wird geraten.** Wo eine Erkennung fehlschlägt — kein
-  Zeitstempel, keine Folgennummer im Titel, kein Treffer beim
-  Überlappungsvergleich — wird übersprungen und am Ende gemeldet, nicht
-  auf einen Rückfallwert geschätzt. Ein falsch nummerierter Treffer
-  überschreibt sonst eine korrekt erkannte Folge.
-* **`goblin.properties` enthält Zugangsdaten** und steht in der
-  `.gitignore`. Im Repo liegt nur `goblin.properties.example`. Keine
-  echten Keys, Hosts oder Pfade in Beispiele schreiben.
+* **No external Java dependencies.** The project builds with `javac` and
+  nothing else — hence the hand-written JSON parser in `Json.java`. Adding a
+  library costs the `./build.sh` path and makes Maven mandatory. If something
+  really needs a dependency, that is a decision for the repo owner, not for an
+  agent.
+* **The working directory is not in `/tmp`.** In a Wings container `/tmp` is a
+  tmpfs of a few hundred megabytes, and video plus audio track plus the muxed
+  file blows through it immediately. See `Goblin.workRoot()`, overridable
+  through `GOBLIN_TMP`.
+* **The default format is H.264/AAC in mp4**, not the best available quality.
+  VP9 and AV1 force the media server to transcode, with AV1 entirely on the
+  CPU for lack of a hardware decoder. `--best` exists for the deliberate
+  opposite case.
+* **Nothing is guessed.** Where a detection fails — no timestamp, no episode
+  number in the title, no match in the overlap comparison — the item is
+  skipped and reported at the end, not estimated onto a fallback value. A
+  wrongly numbered hit would otherwise overwrite a correctly detected episode.
+* **`goblin.properties` holds credentials** and is listed in `.gitignore`. Only
+  `goblin.properties.example` is in the repo. Do not put real keys, hosts or
+  paths into examples.
 
 ## Commits
 
-Gitmoji, und zwar so:
+Gitmoji, like this:
 
 ```
 :sparkles: Add episode-per-video playlist mode
 ```
 
-* **Shortcode-Schreibweise**, nie das literale Emoji — sonst findet
-  `git log --grep=':memo:'` den Commit nicht. (`dc95f25` benutzt ein
-  literales 📝; das war ein Versehen und ist kein Vorbild.)
-* **Kein Body.** Eine Zeile, sonst nichts.
-* **Englisch**, Imperativ, Großbuchstabe am Anfang, kein Punkt am Ende.
-* Ein Commit pro thematischer Änderung.
+* **Shortcode spelling**, never the literal emoji — otherwise
+  `git log --grep=':memo:'` will not find the commit. (`dc95f25` uses a
+  literal 📝; that was an oversight and is not a model to follow.)
+* **No body.** One line, nothing else.
+* **English**, imperative, capital first letter, no full stop at the end.
+* One commit per thematic change.
 
-Übliche Emojis hier: `:sparkles:` neues Feature, `:bug:` Fehlerbehebung,
-`:memo:` Doku, `:fire:` Code oder Dateien entfernen, `:recycle:`
-Umbau ohne Verhaltensänderung.
+Emojis common here: `:sparkles:` new feature, `:bug:` bug fix, `:memo:` docs,
+`:fire:` removing code or files, `:recycle:` refactor without behaviour change.
 
-## Sprache
+## Language
 
-README und Code-Kommentare auf Deutsch, Commit-Messages auf Englisch. Das
-ist gewachsen, nicht durchdacht — aber es ist der Bestand, also bitte
-nicht auf eigene Faust vereinheitlichen.
+Everything — README, code comments, commit messages — is in English. The repo
+used to have German prose with English commit messages; that was translated in
+one pass, so do not reintroduce German.
 
-## Verifizieren
+## Verifying
 
-Es gibt **keine Tests**. Was geht:
+There are **no tests**. What can be done:
 
 ```bash
-./build.sh                      # javac + jar, bricht bei Syntaxfehlern ab
+./build.sh                      # javac + jar, fails on syntax errors
 java -jar goblin.jar --help
 ```
 
-Ein echter Durchlauf braucht `yt-dlp`, `ffmpeg`, `ffprobe` und `curl` im
-PATH sowie Netzzugang zu YouTube. Ist das nicht vorhanden, ist der Build
-die ganze Prüfung — dann auch genau das sagen und nicht implizieren, eine
-Änderung sei getestet.
+A real run needs `yt-dlp`, `ffmpeg`, `ffprobe` and `curl` on the PATH plus
+network access to YouTube. Where that is not available, the build is the whole
+check — then say exactly that, and do not imply a change was tested.
 
-Die Schwellwerte der Erkennungsverfahren sind an je einem Testvideo
-kalibriert und im README beschrieben: 0,90 für die Korrelation beim
-Überlappungsvergleich (`AudioProbe`), ±5 s Suchfenster für `--snap`
-(`CutDetect`). Wer sie ändert, ändert sie ohne Netz.
+The thresholds of the detection routines are calibrated against a single test
+video each and described in the README: 0.90 for the correlation in the overlap
+comparison (`AudioProbe`), a ±5 s search window for `--snap` (`CutDetect`).
+Changing them means changing them without a safety net.
 
-## Aufbau
+## Layout
 
-| Datei | |
+| File | |
 | --- | --- |
-| `Goblin.java` | Argument-Parsing und Orchestrierung aller sechs Befehle |
-| `YtDlp.java` | Hülle um yt-dlp, Formatselektoren, Cookie-Datei |
-| `Ffmpeg.java` / `Ffprobe.java` | Schneiden und Laufzeit ermitteln |
-| `ChapterParser.java` | Zeitstempel aus der Videobeschreibung |
-| `CutDetect.java` | echten Bildwechsel nahe einem Zeitstempel finden |
-| `OutroDetect.java` | Abspann am Ende eines Teils finden |
-| `AudioProbe.java` | doppelte Anfänge über Lautstärkeverläufe erkennen |
-| `TitleNumbers.java` | Staffel und Folge aus dem Videotitel lesen |
-| `Naming.java` | Pfade so bauen, wie Jellyfins Scanner sie erwartet |
-| `Tmdb.java` | Serien-ID, Jahr, Poster, Hintergrundbild |
-| `Sftp.java` | fertige Dateien per curl wegschieben |
-| `Json.java` | minimaler JSON-Parser, ersetzt eine Dependency |
+| `Goblin.java` | argument parsing and orchestration of all six commands |
+| `YtDlp.java` | wrapper around yt-dlp, format selectors, cookie file |
+| `Ffmpeg.java` / `Ffprobe.java` | cutting and determining runtime |
+| `ChapterParser.java` | timestamps out of the video description |
+| `CutDetect.java` | find the real picture change near a timestamp |
+| `OutroDetect.java` | find the closing credits at the end of a part |
+| `AudioProbe.java` | detect duplicate starts through loudness envelopes |
+| `TitleNumbers.java` | read season and episode from the video title |
+| `Naming.java` | build paths the way Jellyfin's scanner expects them |
+| `Tmdb.java` | show ID, year, poster, backdrop image |
+| `Sftp.java` | push finished files away through curl |
+| `Json.java` | minimal JSON parser, replaces a dependency |
 
-`Goblin.java` ist mit über tausend Zeilen die mit Abstand größte Datei.
-Neue Befehle vergrößern sie weiter — das ist bekannt und bisher bewusst
-in Kauf genommen.
+`Goblin.java` is by far the largest file at over a thousand lines. New commands
+grow it further — that is known and so far deliberately accepted.
+
+## Naming
+
+The CLI command is `shows`. Internally the TMDb entity and the folder helpers
+still say *series* (`Tmdb.Series`, `Naming.seriesFolder`) — that is the domain
+word for a TV series and is intentionally not renamed. Note that
+`TitleNumbers` matches the literal word `Series` inside video titles; renaming
+that would break title parsing.

@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>TheGoblin</name>
-    <description>Zerlegt YouTube-Videos anhand ihrer Kapitel in Jellyfin-taugliche Episoden</description>
+    <description>Splits YouTube videos into Jellyfin-ready episodes along their chapters</description>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>

@@ -16,11 +16,11 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * Serien-Datenbank. Liefert die TMDb-ID (damit Jellyfin nicht raten muss)
- * sowie Poster und Hintergrundbild.
+ * Show database. Provides the TMDb ID (so Jellyfin does not have to guess)
+ * along with the poster and the backdrop image.
  *
- * Braucht einen kostenlosen API-Key in der Umgebungsvariable TMDB_API_KEY.
- * Ohne Key laeuft TheGoblin trotzdem, nur eben ohne Artwork.
+ * Needs a free API key in the environment variable TMDB_API_KEY. Without a key
+ * TheGoblin still runs, just without artwork.
  */
 final class Tmdb {
 
@@ -36,9 +36,9 @@ final class Tmdb {
     }
 
     /**
-     * Holt den Key aus goblin.properties (tmdb.api_key). Fehlt er dort, wird
-     * die Umgebungsvariable TMDB_API_KEY benutzt - so funktionieren
-     * bestehende Aufsetzungen ueber Panel-Variablen weiter.
+     * Takes the key from goblin.properties (tmdb.api_key). If it is missing
+     * there, the environment variable TMDB_API_KEY is used - that way existing
+     * setups using panel variables keep working.
      */
     static Tmdb from(Path configFile) {
         String key = fromFile(configFile);
@@ -63,11 +63,11 @@ final class Tmdb {
     }
 
     /**
-     * @param id         TMDb-ID der Serie
-     * @param name       offizieller Serientitel
-     * @param year       Jahr der Erstausstrahlung, kann null sein
-     * @param posterPath Pfadfragment des Posters, kann null sein
-     * @param backdropPath Pfadfragment des Hintergrundbilds, kann null sein
+     * @param id         TMDb ID of the show
+     * @param name       official show title
+     * @param year       year first aired, may be null
+     * @param posterPath path fragment of the poster, may be null
+     * @param backdropPath path fragment of the backdrop image, may be null
      */
     record Series(int id, String name, Integer year, String posterPath, String backdropPath) {
     }
@@ -99,13 +99,13 @@ final class Tmdb {
         return toSeries(Json.object(Json.parse(get(url))));
     }
 
-    /** Legt poster.jpg und backdrop.jpg im Serienordner ab. Jellyfin liest die direkt ein. */
+    /** Writes poster.jpg and backdrop.jpg into the show folder. Jellyfin reads those directly. */
     void downloadArtwork(Series series, Path seriesFolder) {
         save(series.posterPath(), seriesFolder.resolve("poster.jpg"));
         save(series.backdropPath(), seriesFolder.resolve("backdrop.jpg"));
     }
 
-    /** Filme heissen bei TMDb "title" und "release_date" statt "name"/"first_air_date". */
+    /** On TMDb movies use "title" and "release_date" instead of "name"/"first_air_date". */
     private Series toMovie(Map<String, Object> m) {
         if (m.isEmpty()) {
             return null;
@@ -163,7 +163,7 @@ final class Tmdb {
                 System.out.println("  Artwork: " + target.getFileName());
             }
         } catch (IOException | InterruptedException e) {
-            System.out.println("  Artwork uebersprungen (" + e.getMessage() + ")");
+            System.out.println("  Artwork skipped (" + e.getMessage() + ")");
         }
     }
 
@@ -174,7 +174,7 @@ final class Tmdb {
                 .build();
         HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (res.statusCode() != 200) {
-            throw new IOException("TMDb antwortete mit " + res.statusCode());
+            throw new IOException("TMDb responded with " + res.statusCode());
         }
         return res.body();
     }

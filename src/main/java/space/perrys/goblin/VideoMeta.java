@@ -3,13 +3,13 @@ package space.perrys.goblin;
 import java.util.List;
 
 /**
- * Was TheGoblin ueber ein Video wissen muss.
+ * What TheGoblin needs to know about a video.
  *
- * @param id          YouTube-ID
- * @param title       Videotitel
- * @param description Beschreibungstext, Quelle fuer die Zeitstempel-Suche
- * @param duration    Laenge in Sekunden
- * @param chapters    Kapitel, die YouTube selbst schon erkannt hat
+ * @param id          YouTube ID
+ * @param title       video title
+ * @param description description text, the source for the timestamp search
+ * @param duration    length in seconds
+ * @param chapters    chapters YouTube already recognised itself
  */
 record VideoMeta(String id, String title, String description, double duration, List<Chapter> chapters) {
 }

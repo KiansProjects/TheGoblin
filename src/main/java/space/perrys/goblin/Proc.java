@@ -6,20 +6,21 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-/** Startet externe Programme und sammelt deren Ausgabe ein. */
+/** Starts external programs and collects their output. */
 final class Proc {
 
     private Proc() {
     }
 
-    /** Fuehrt das Kommando aus und gibt stdout zurueck. Wirft bei Exitcode != 0. */
+    /** Runs the command and returns stdout. Throws on a non-zero exit code. */
     static String capture(List<String> command) throws IOException, InterruptedException {
         return capture(command, false);
     }
 
     /**
-     * @param echoStderr true reicht stderr live an die Konsole durch. Fuer die
-     *                   Fehlersuche, wenn man sehen will, woran yt-dlp scheitert.
+     * @param echoStderr true passes stderr through to the console live. For
+     *                   troubleshooting, when you want to see what yt-dlp is
+     *                   failing on.
      */
     static String capture(List<String> command, boolean echoStderr)
             throws IOException, InterruptedException {
@@ -37,15 +38,14 @@ final class Proc {
 
         int code = p.waitFor();
         if (code != 0) {
-            throw new IOException(command.get(0) + " endete mit Code " + code + ":\n" + err.toString().strip());
+            throw new IOException(command.get(0) + " exited with code " + code + ":\n" + err.toString().strip());
         }
         return out.toString();
     }
 
     /**
-     * Fuehrt das Kommando aus und gibt stdout und stderr zusammen zurueck.
-     * Wirft nicht bei Exitcode != 0 - fuer Analysen, deren Ergebnis auch dann
-     * brauchbar ist.
+     * Runs the command and returns stdout and stderr together. Does not throw
+     * on a non-zero exit code - for analyses whose result is still usable then.
      */
     static String captureCombined(List<String> command) throws IOException, InterruptedException {
         Process p = new ProcessBuilder(command).redirectErrorStream(true).start();
@@ -55,16 +55,16 @@ final class Proc {
         return out.toString();
     }
 
-    /** Fuehrt das Kommando aus und reicht die Ausgabe direkt an die Konsole durch. */
+    /** Runs the command and passes its output straight through to the console. */
     static void inherit(List<String> command) throws IOException, InterruptedException {
         Process p = new ProcessBuilder(command).inheritIO().start();
         int code = p.waitFor();
         if (code != 0) {
-            throw new IOException(command.get(0) + " endete mit Code " + code);
+            throw new IOException(command.get(0) + " exited with code " + code);
         }
     }
 
-    /** Prueft, ob ein Programm im PATH liegt. */
+    /** Checks whether a program is on the PATH. */
     static boolean exists(String program) {
         try {
             new ProcessBuilder(program, "--version")
@@ -92,7 +92,7 @@ final class Proc {
                 }
             }
         } catch (IOException e) {
-            // Stream wurde geschlossen, Rest ignorieren
+            // Stream was closed, ignore the rest
         }
     }
 }

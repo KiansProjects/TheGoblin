@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Minimaler JSON-Parser. Reicht fuer die Antworten von yt-dlp und TMDb.
- * Wenn du das Projekt spaeter auf Jackson umstellst, ist das die einzige
- * Klasse, die du wegwerfen musst.
+ * Minimal JSON parser. Enough for the responses from yt-dlp and TMDb.
+ * If you ever move the project to Jackson, this is the only class you have to
+ * throw away.
  */
 final class Json {
 
@@ -81,7 +81,7 @@ final class Json {
                 return map;
             }
             if (c != ',') {
-                throw err("',' oder '}' erwartet");
+                throw err("expected ',' or '}'");
             }
         }
     }
@@ -103,7 +103,7 @@ final class Json {
                 return list;
             }
             if (c != ',') {
-                throw err("',' oder ']' erwartet");
+                throw err("expected ',' or ']'");
             }
         }
     }
@@ -132,7 +132,7 @@ final class Json {
                     sb.append((char) Integer.parseInt(src.substring(pos, pos + 4), 16));
                     pos += 4;
                 }
-                default -> throw err("unbekannte Escape-Sequenz \\" + e);
+                default -> throw err("unknown escape sequence \\" + e);
             }
         }
     }
@@ -143,14 +143,14 @@ final class Json {
             pos++;
         }
         if (start == pos) {
-            throw err("Zahl erwartet");
+            throw err("expected a number");
         }
         return Double.valueOf(src.substring(start, pos));
     }
 
     private Object literal(String word, Object result) {
         if (!src.startsWith(word, pos)) {
-            throw err("'" + word + "' erwartet");
+            throw err("expected '" + word + "'");
         }
         pos += word.length();
         return result;
@@ -158,14 +158,14 @@ final class Json {
 
     private char peek() {
         if (pos >= src.length()) {
-            throw err("unerwartetes Ende");
+            throw err("unexpected end of input");
         }
         return src.charAt(pos);
     }
 
     private void expect(char c) {
         if (peek() != c) {
-            throw err("'" + c + "' erwartet");
+            throw err("expected '" + c + "'");
         }
         pos++;
     }
@@ -177,6 +177,6 @@ final class Json {
     }
 
     private IllegalStateException err(String message) {
-        return new IllegalStateException("JSON an Position " + pos + ": " + message);
+        return new IllegalStateException("JSON at position " + pos + ": " + message);
     }
 }

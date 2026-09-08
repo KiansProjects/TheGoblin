@@ -6,18 +6,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Schneidet Abschnitte aus dem heruntergeladenen Video. */
+/** Cuts sections out of the downloaded video. */
 final class Ffmpeg {
 
     private Ffmpeg() {
     }
 
     /**
-     * @param reencode false schneidet ohne Neukodierung. Schnell, aber der Start
-     *                 rastet auf den vorhergehenden Keyframe ein - der Abschnitt
-     *                 wird dadurch bis zu eine Keyframe-Distanz laenger als
-     *                 angegeben. true trifft die Zeit framegenau, kostet dafuer
-     *                 Rechenzeit und minimal Qualitaet.
+     * @param reencode false cuts without re-encoding. Fast, but the start snaps
+     *                 to the preceding keyframe - the section ends up longer
+     *                 than requested, by up to one keyframe distance. true hits
+     *                 the time frame-accurately, at the cost of processing time
+     *                 and a little quality.
      */
     static void cut(Path input, Chapter chapter, Path output, boolean reencode)
             throws IOException, InterruptedException {
@@ -29,8 +29,8 @@ final class Ffmpeg {
                 "-t", fmt(chapter.duration())));
 
         if (reencode) {
-            // Nur das Bild neu kodieren. Der Ton laesst sich framegenau kopieren,
-            // eine zweite AAC-Generation waere reiner Qualitaetsverlust.
+            // Re-encode the picture only. The audio can be copied frame-accurately,
+            // a second AAC generation would be pure quality loss.
             cmd.addAll(List.of(
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                     "-c:a", "copy"));
@@ -43,9 +43,9 @@ final class Ffmpeg {
     }
 
     /**
-     * Haengt fertige Abschnitte aneinander. Die Abschnitte muessen dieselben
-     * Kodierparameter haben - beim Weg ueber cut(..., reencode=true) ist das
-     * gegeben, deshalb reicht hier das blosse Kopieren der Streams.
+     * Joins finished sections together. The sections must share the same
+     * encoding parameters - going through cut(..., reencode=true) guarantees
+     * that, so copying the streams is enough here.
      */
     static void concat(List<Path> segments, Path listFile, Path output)
             throws IOException, InterruptedException {

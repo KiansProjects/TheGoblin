@@ -9,13 +9,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Findet das Ende des eigentlichen Inhalts, also den Punkt, ab dem nur noch
- * Abspann laeuft.
+ * Finds the end of the actual content, meaning the point from which only the
+ * closing credits run.
  *
- * Zwei Signale: eine Stille, die bis zum Videoende reicht, und ein
- * Schwarzbild am Ende. Beides ist zuverlaessig erkennbar. Ein Outro mit
- * durchlaufender Musik und Bild ist es nicht - dafuer gibt es die feste
- * Angabe ueber --outro.
+ * Two signals: a silence that reaches the end of the video, and a black frame
+ * at the end. Both are reliably detectable. An outro with music and picture
+ * running through is not - the fixed --outro value exists for that.
  */
 final class OutroDetect {
 
@@ -24,17 +23,17 @@ final class OutroDetect {
     private static final Pattern BLACK_START =
             Pattern.compile("black_start:([0-9.]+)\\s+black_end:([0-9.]+)");
 
-    /** Wie weit vom Ende her gesucht wird. */
+    /** How far back from the end the search runs. */
     private static final double SEARCH = 120.0;
 
-    /** Kuerzestes Outro, das noch als solches zaehlt. */
+    /** Shortest outro that still counts as one. */
     private static final double MIN_OUTRO = 2.0;
 
     private OutroDetect() {
     }
 
     /**
-     * @return Zeitpunkt, ab dem das Outro laeuft, oder leer wenn keins erkannt wurde
+     * @return the point from which the outro runs, or empty if none was detected
      */
     static OptionalDouble find(Path media, double duration) {
         double from = Math.max(0, duration - SEARCH);
@@ -42,8 +41,8 @@ final class OutroDetect {
         OptionalDouble silence = trailingSilence(media, from, duration);
         OptionalDouble black = trailingBlack(media, from, duration);
 
-        // Der frueheste plausible Punkt gewinnt: faengt das Schwarzbild vor
-        // der Stille an, gehoert schon das Bild zum Abspann.
+        // The earliest plausible point wins: if the black frame starts before
+        // the silence, the picture already belongs to the credits.
         if (silence.isPresent() && black.isPresent()) {
             return OptionalDouble.of(Math.min(silence.getAsDouble(), black.getAsDouble()));
         }
@@ -53,14 +52,14 @@ final class OutroDetect {
         return black;
     }
 
-    /** Stille, die bis zum Ende durchlaeuft. */
+    /** Silence that runs through to the end. */
     private static OptionalDouble trailingSilence(Path media, double from, double duration) {
         String out = analyse(media, from, "silencedetect=noise=-45dB:d=1.5", true);
         if (out == null) {
             return OptionalDouble.empty();
         }
 
-        // Ein silence_start ohne folgendes silence_end reicht bis zum Ende.
+        // A silence_start without a following silence_end reaches the end.
         double last = -1;
         boolean closed = true;
         for (String line : out.split("\\R")) {
@@ -79,7 +78,7 @@ final class OutroDetect {
         return OptionalDouble.of(last);
     }
 
-    /** Schwarzbild, das bis zum Ende durchlaeuft. */
+    /** Black frame that runs through to the end. */
     private static OptionalDouble trailingBlack(Path media, double from, double duration) {
         String out = analyse(media, from, "blackdetect=d=1.0:pix_th=0.10", false);
         if (out == null) {

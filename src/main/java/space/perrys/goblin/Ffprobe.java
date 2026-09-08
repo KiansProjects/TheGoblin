@@ -4,13 +4,13 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
-/** Kleine Abfragen an ffprobe. */
+/** Small queries against ffprobe. */
 final class Ffprobe {
 
     private Ffprobe() {
     }
 
-    /** Laufzeit in Sekunden, 0 wenn sie sich nicht ermitteln laesst. */
+    /** Runtime in seconds, 0 if it cannot be determined. */
     static double duration(Path media) {
         try {
             String out = Proc.capture(List.of(

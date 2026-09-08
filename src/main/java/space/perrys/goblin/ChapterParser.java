@@ -6,12 +6,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Faellt ein, wenn YouTube die Zeitstempel nicht selbst als Kapitel erkannt hat.
+ * Steps in when YouTube did not recognise the timestamps as chapters itself.
  *
- * Zwei Durchlaeufe: zuerst nur Zeilen, die mit einem Zeitstempel beginnen - das
- * ist die uebliche Form einer Kapitelliste. Nur wenn das nichts liefert, wird
- * lockerer gesucht ("Episode 1 - 0:00"). Sonst landen Zeilen wie
- * "jeden Samstag um 10:00 Uhr" als Episode in deiner Mediathek.
+ * Two passes: first only lines that start with a timestamp - that is the usual
+ * shape of a chapter list. Only if that yields nothing does it search more
+ * loosely ("Episode 1 - 0:00"). Otherwise lines like "every Saturday at 10:00"
+ * end up as an episode in your media library.
  */
 final class ChapterParser {
 
@@ -19,7 +19,7 @@ final class ChapterParser {
     private static final Pattern LEADING_JUNK = Pattern.compile("^[\\s\\-–—:•·|.,()\\[\\]#*>▶►=~_]+");
     private static final Pattern TRAILING_JUNK = Pattern.compile("[\\s\\-–—:•·|]+$");
 
-    /** Uhrzeit-Angaben, die faelschlich wie ein Zeitstempel aussehen. */
+    /** Clock times that wrongly look like a timestamp. */
     private static final Pattern CLOCK_SUFFIX =
             Pattern.compile("^\\s*(am|pm|a\\.m\\.|p\\.m\\.|uhr|est|pst|cet|utc|gmt)\\b",
                     Pattern.CASE_INSENSITIVE);
@@ -52,7 +52,7 @@ final class ChapterParser {
             double start = marks.get(i).start();
             double end = (i + 1 < marks.size()) ? marks.get(i + 1).start() : totalDuration;
             if (end - start < 1.0) {
-                continue; // doppelter Zeitstempel
+                continue; // duplicate timestamp
             }
             chapters.add(new Chapter(start, end, marks.get(i).title()));
         }
@@ -60,7 +60,7 @@ final class ChapterParser {
     }
 
     /**
-     * @param strict true verlangt, dass der Zeitstempel am Zeilenanfang steht
+     * @param strict true requires the timestamp to sit at the start of the line
      */
     private static List<Mark> collect(String[] lines, double totalDuration, boolean strict) {
         List<Mark> marks = new ArrayList<>();
