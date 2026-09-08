@@ -449,7 +449,24 @@ Two details worth knowing:
 
 Implemented through `curl`, which is present in the yolk anyway and can do SFTP. An `sftp` binary would have to be installed first.
 
-Key authentication only. A password would sit in plain text in the file and in the process list. Put the public key next to the private one (`id_ed25519.pub`), then TheGoblin finds it itself.
+Put the public key next to the private one (`id_ed25519.pub`), then TheGoblin
+finds it itself.
+
+### Password instead of a key
+
+Where the target does not accept keys, `sftp.password` authenticates with a
+password instead. The key wins if both are set.
+
+It is never passed on the command line — curl reads it from stdin through
+`--config -`, so it does not show up in `/proc/<pid>/cmdline`, which any process
+in the same container can read. What remains is the file: the password sits in
+`goblin.properties` in plain text, and against a Panel's built-in SFTP it is the
+panel *account* password, not a credential limited to one directory. A key
+avoids both, and the run prints a warning when a password is used.
+
+One trap: `goblin.properties` is a Java properties file, so a backslash is an
+escape character there. A password containing `\` must be written `\\`, or the
+backslash is silently swallowed before TheGoblin ever sees it.
 
 **Failed uploads delete nothing.** If the target is unreachable, the file stays local and the run carries on — you can push it up by hand later. With `--keep-local` the copy stays in place as a rule.
 

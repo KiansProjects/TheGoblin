@@ -24,8 +24,12 @@ import java.util.Properties;
  *   sftp.key  = /home/container/.ssh/id_ed25519
  *   sftp.base = /srv/media
  *
- * Key authentication only. Passwords would be visible in plain text in the
- * file and in the process list.
+ * Key authentication through sftp.key is the recommended way. sftp.password
+ * exists as a fallback for targets that do not accept keys, but it is the
+ * weaker option: the password sits in plain text in goblin.properties, and on
+ * a Panel's built-in SFTP it is the panel account password rather than a
+ * credential scoped to one directory. It is never passed on the command line -
+ * curl reads it from stdin - but the file itself stays readable.
  */
 final class Sftp {
 
@@ -33,13 +37,15 @@ final class Sftp {
     private final int port;
     private final String user;
     private final Path key;
+    private final String password;
     private final String base;
 
-    private Sftp(String host, int port, String user, Path key, String base) {
+    private Sftp(String host, int port, String user, Path key, String password, String base) {
         this.host = host;
         this.port = port;
         this.user = user;
         this.key = key;
+        this.password = password;
         this.base = stripTrailingSlash(base);
     }
 
@@ -60,17 +66,38 @@ final class Sftp {
         String user = value(p, "sftp.user");
         String base = value(p, "sftp.base");
         String keyPath = value(p, "sftp.key");
+        String password = value(p, "sftp.password");
 
-        if (host == null || user == null || base == null || keyPath == null) {
+        if (host == null || user == null || base == null) {
             System.out.println(configFile + " is incomplete - "
-                    + "sftp.host, sftp.user, sftp.key and sftp.base are required.");
+                    + "sftp.host, sftp.user and sftp.base are required.");
+            return null;
+        }
+        if (keyPath == null && password == null) {
+            System.out.println(configFile + " has neither sftp.key nor sftp.password.");
             return null;
         }
 
-        Path key = Path.of(keyPath);
-        if (!Files.isReadable(key)) {
-            System.out.println("Key not readable: " + key);
-            return null;
+        Path key = null;
+        if (keyPath != null) {
+            key = Path.of(keyPath);
+            if (!Files.isReadable(key)) {
+                System.out.println("Key not readable: " + key);
+                return null;
+            }
+        }
+
+        // The key wins when both are present, so a leftover password line
+        // cannot quietly downgrade a working key setup.
+        if (key != null && password != null) {
+            System.out.println("sftp.key and sftp.password are both set - using the key.");
+            password = null;
+        }
+
+        if (password != null) {
+            System.out.println("Warning: authenticating with sftp.password. It sits in plain text "
+                    + "in " + configFile + ", and on a Panel's built-in SFTP it is your panel "
+                    + "account password. A key in sftp.key avoids both.");
         }
 
         int port = 22;
@@ -83,11 +110,12 @@ final class Sftp {
             }
         }
 
-        return new Sftp(host, port, user, key, base);
+        return new Sftp(host, port, user, key, password, base);
     }
 
     String describe() {
-        return user + "@" + host + ":" + port + " -> " + base;
+        return user + "@" + host + ":" + port + " -> " + base
+                + (password != null ? " (password)" : "");
     }
 
     /**
@@ -101,18 +129,31 @@ final class Sftp {
         List<String> cmd = new ArrayList<>(List.of(
                 "curl", "--silent", "--show-error", "--fail",
                 "--ftp-create-dirs",
-                "--key", key.toString(),
-                "--user", user + ":",
                 "--upload-file", localFile.toString(),
                 url));
 
-        Path pub = Path.of(key + ".pub");
-        if (Files.isReadable(pub)) {
-            cmd.add("--pubkey");
-            cmd.add(pub.toString());
+        if (key != null) {
+            cmd.addAll(List.of("--key", key.toString(), "--user", user + ":"));
+
+            Path pub = Path.of(key + ".pub");
+            if (Files.isReadable(pub)) {
+                cmd.add("--pubkey");
+                cmd.add(pub.toString());
+            }
+
+            Proc.capture(cmd);
+            return;
         }
 
-        Proc.capture(cmd);
+        // --config - makes curl read the credentials from stdin, so they never
+        // appear in the argument list of the process.
+        cmd.addAll(List.of("--config", "-"));
+        Proc.captureWithInput(cmd, "user = \"" + escape(user) + ":" + escape(password) + "\"\n");
+    }
+
+    /** Quotes for a curl config line, which understands backslash escapes. */
+    private static String escape(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /** Encodes spaces and special characters but keeps the separators. */

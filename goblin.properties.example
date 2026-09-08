@@ -9,10 +9,18 @@
 tmdb.api_key =
 
 # SFTP target for --upload.
-# Key authentication only - a password would be visible in plain text
-# in this file and in the process list.
 sftp.host = 192.168.1.50
 sftp.port = 22
 sftp.user = perry
 sftp.key  = /home/container/.ssh/id_ed25519
-sftp.base = /srv/media/shows
+sftp.base = /srv/media
+
+# Password instead of a key, for targets that do not accept keys. The weaker
+# option: it sits here in plain text, and on a Panel's built-in SFTP it is your
+# panel account password rather than a credential scoped to one directory.
+# It is never passed on the command line - curl reads it from stdin.
+# If sftp.key is set as well, the key wins and this line is ignored.
+#
+# Careful: this is a Java properties file, so a backslash is an escape
+# character. A password containing \ has to be written \\ here.
+# sftp.password =

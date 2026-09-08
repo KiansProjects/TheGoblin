@@ -44,6 +44,38 @@ final class Proc {
     }
 
     /**
+     * Runs the command and feeds {@code input} to its standard input.
+     *
+     * For credentials that must not show up on the command line: everything in
+     * /proc/<pid>/cmdline can be read by any process in the same container,
+     * so a password passed as an argument is effectively public there.
+     */
+    static String captureWithInput(List<String> command, String input)
+            throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(false);
+        Process p = pb.start();
+
+        StringBuilder out = new StringBuilder();
+        StringBuilder err = new StringBuilder();
+
+        Thread errReader = Thread.ofVirtual().start(() -> drain(p.getErrorStream(), err, false));
+
+        try (var stdin = p.getOutputStream()) {
+            stdin.write(input.getBytes(StandardCharsets.UTF_8));
+        }
+
+        drain(p.getInputStream(), out);
+        errReader.join();
+
+        int code = p.waitFor();
+        if (code != 0) {
+            throw new IOException(command.get(0) + " exited with code " + code + ":\n" + err.toString().strip());
+        }
+        return out.toString();
+    }
+
+    /**
      * Runs the command and returns stdout and stderr together. Does not throw
      * on a non-zero exit code - for analyses whose result is still usable then.
      */
