@@ -73,6 +73,8 @@ public final class Goblin {
             return 0;
         }
 
+        Limits.load(CONFIG);
+
         return switch (args[0]) {
             case "shows" -> shows(args);
             case "chapters" -> chapters(args);
@@ -246,6 +248,7 @@ public final class Goblin {
         int done = 0;
         int skipped = 0;
         int failed = 0;
+        int uploadFails = 0;
 
         for (int i = 0; i < entries.size(); i++) {
             Path target = targets.get(i);
@@ -264,13 +267,30 @@ public final class Goblin {
                 String stem = fileName.substring(0, fileName.lastIndexOf('.'));
                 YtDlp.download("https://youtu.be/" + entries.get(i)[0],
                         target.getParent().resolve(stem), format, container);
-                uploadIfConfigured(sftp, out, target, keepLocal);
                 done++;
+
+                // A failed upload leaves the file on disk. Carrying on through a
+                // whole playlist that way fills the disk up, which on a single
+                // machine takes the panel and its database down with it.
+                if (sftp != null) {
+                    uploadFails = uploadIfConfigured(sftp, out, target, keepLocal)
+                            ? 0
+                            : uploadFails + 1;
+
+                    if (Limits.uploadFailures() > 0 && uploadFails >= Limits.uploadFailures()) {
+                        System.out.printf("%nStopping: %d uploads in a row failed. "
+                                + "What did not go up stays local, so going on would "
+                                + "only fill the disk.%n", uploadFails);
+                        break;
+                    }
+                }
             } catch (IOException e) {
                 // One broken video should not stop the other 50
                 System.out.println("    failed: " + e.getMessage());
                 failed++;
             }
+
+            Limits.waitBetweenItems();
         }
 
         if (tmdb != null && series != null && Files.exists(seriesDir)) {

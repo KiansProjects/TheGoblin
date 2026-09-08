@@ -166,6 +166,8 @@ final class Sftp {
                 "--upload-file", localFile.toString(),
                 url));
 
+        Limits.addRateLimit(cmd);
+
         if (hostKey != null) {
             cmd.addAll(List.of("--hostpubsha256", hostKey));
         } else if (insecure) {

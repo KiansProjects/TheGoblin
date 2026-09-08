@@ -261,6 +261,7 @@ final class YtDlp {
             cmd.add(COOKIES.toString());
         }
 
+        Limits.addRateLimit(cmd);
         cmd.addAll(tokenize(System.getenv("YTDLP_ARGS")));
         return cmd;
     }

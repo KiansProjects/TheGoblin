@@ -35,6 +35,28 @@ sftp.base = /srv/media
 # Paste the SHA256:... part; the prefix may stay, it is stripped.
 # sftp.hostkey_sha256 =
 
+# ---------------------------------------------------------------------
+# Brakes. These protect the machine TheGoblin runs on, so they live here
+# rather than on the command line - a flag you have to remember is a flag
+# you forget on the run that hurts.
+# ---------------------------------------------------------------------
+
+# Cap for downloads and uploads alike, in bytes per second. yt-dlp and curl
+# both understand the K/M suffix. Empty means no limit.
+# A whole season moves tens of gigabytes through one disk; on a single VPS
+# that also runs the panel and its database, unthrottled is enough to make
+# the whole machine unresponsive.
+# limit.rate = 5M
+
+# Seconds to wait between two episodes. Gives the disk a moment to flush.
+# limit.pause = 5
+
+# Give up after this many failed uploads in a row. This is the important
+# one: a failed upload leaves the file on disk, so without it a broken
+# upload quietly fills the disk for the length of the whole playlist.
+# 0 turns it off. Default is 3, even without this file.
+# limit.upload_failures = 3
+
 # Or skip the host key check entirely. Then anything answering on that
 # host and port is trusted. Only sensible on a network you control, and
 # the hash above is the better answer. Ignored when the hash is set.

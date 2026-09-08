@@ -497,6 +497,38 @@ prints a warning when it is on, and the hash wins if both are set.
 
 The server's disk limit therefore only bounds what is currently being worked on, not the total amount.
 
+## Brakes
+
+A whole season is tens of gigabytes moving through one disk in a tight loop.
+Each episode is written twice — the separate video and audio streams, then the
+muxed file — read again for the upload, and written once more at the target. On
+a single machine that also carries a panel, its database and other servers,
+that is enough to make everything on it unresponsive.
+
+Three limits in `goblin.properties` deal with that. They are configuration
+rather than command line options on purpose: a flag you have to remember is a
+flag you forget on the run that hurts.
+
+```
+limit.rate            = 5M
+limit.pause           = 5
+limit.upload_failures = 3
+```
+
+| | |
+| --- | --- |
+| `limit.rate` | cap for downloads and uploads, bytes per second, K/M suffix understood by both yt-dlp and curl. Empty means no limit. |
+| `limit.pause` | seconds between two episodes, so the disk can flush |
+| `limit.upload_failures` | give up after this many failed uploads in a row. **Default 3, in effect even without a config file.** 0 turns it off. |
+
+The last one matters most. A failed upload leaves the file on disk, so without
+it a run whose target is unreachable keeps downloading through the whole
+playlist and fills the disk — which, on a single machine, takes the panel and
+its database down with it.
+
+The guard covers `playlist --episodes`, the bulk path. `shows`, `movie` and
+`concat` upload too few files at a time for it to apply.
+
 ## Disk space
 
 The download runs through a working directory that TheGoblin creates in the current directory — not in `/tmp`. In a Wings container `/tmp` is a tmpfs of a few hundred megabytes, and video plus audio track plus the muxed file blows through that immediately.
