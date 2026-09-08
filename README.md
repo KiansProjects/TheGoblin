@@ -419,10 +419,33 @@ sftp.host = 192.168.1.50
 sftp.port = 22
 sftp.user = perry
 sftp.key  = /home/container/.ssh/id_ed25519
-sftp.base = /srv/media/shows
+sftp.base = /srv/media
 ```
 
-Then append `--upload` to `shows`, `movie` or `playlist --episodes`. The path below `sftp.base` matches what would otherwise have been created below `--out` — show folders and season subfolders are created on the target.
+Then append `--upload` to `shows`, `movie`, `playlist --episodes`, `concat` or
+`audio`.
+
+**The remote path mirrors the local one.** What gets appended to `sftp.base` is
+the path of the file relative to the working directory — `--out` included. One
+`sftp.base` therefore serves every media type at once:
+
+| Command | `--out` | ends up in |
+| --- | --- | --- |
+| `shows`, `playlist --episodes` | `shows` | `/srv/media/shows/Series (Year) [tmdbid-N]/Season 01/` |
+| `movie`, `concat --movie` | `movies` | `/srv/media/movies/Title (Year) [tmdbid-N]/` |
+| `audio` | `music` | `/srv/media/music/Artist/Album/` |
+
+Missing folders are created on the target. Artwork and, for `audio`, every
+track of the album travel along.
+
+Two details worth knowing:
+
+* **`audio --upload` needs `--artist` and `--album`.** Without them the folder
+  name is a yt-dlp pattern that is only resolved during the download, so the
+  files cannot be located afterwards. It says so and skips the upload.
+* An `--out` pointing outside the working directory (an absolute path
+  elsewhere) has no meaningful position below `sftp.base`. There the remote
+  path falls back to being relative to `--out` itself.
 
 Implemented through `curl`, which is present in the yolk anyway and can do SFTP. An `sftp` binary would have to be installed first.
 

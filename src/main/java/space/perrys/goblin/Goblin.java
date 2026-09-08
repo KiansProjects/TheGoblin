@@ -437,6 +437,8 @@ public final class Goblin {
         boolean dryRun = false;
         boolean useMusicBrainz = false;
         String mbid = null;
+        boolean upload = false;
+        boolean keepLocal = false;
 
         for (int i = 2; i < args.length; i++) {
             switch (args[i]) {
@@ -446,6 +448,8 @@ public final class Goblin {
                 case "--format", "-f" -> format = args[++i];
                 case "--quality" -> quality = Integer.parseInt(args[++i]);
                 case "--chapters" -> splitChapters = true;
+                case "--upload" -> upload = true;
+                case "--keep-local" -> keepLocal = true;
                 case "--musicbrainz" -> useMusicBrainz = true;
                 case "--mbid" -> {
                     mbid = args[++i];
@@ -526,6 +530,15 @@ public final class Goblin {
             return 0;
         }
 
+        Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
+        if (upload && sftp == null) {
+            System.err.println("--upload was given, but " + CONFIG + " is missing or incomplete.");
+            return 2;
+        }
+        if (sftp != null) {
+            System.out.println("Uploading to " + sftp.describe());
+        }
+
         if (!"best".equalsIgnoreCase(format) && List.of("flac", "wav").contains(format.toLowerCase())) {
             System.out.println("Note: YouTube already serves lossy audio. "
                     + format + " makes the files bigger, not better.");
@@ -534,9 +547,24 @@ public final class Goblin {
 
         YtDlp.audio(url, format, quality, template, splitChapters);
 
+        Path albumPath = out.resolve(artistDir).resolve(albumDir);
+        // Artist or album taken from the metadata leaves a yt-dlp pattern in the
+        // path, which is only resolved during the download - the folder is not
+        // known here then.
+        boolean unknownFolder = artistDir.contains("%(") || albumDir.contains("%(");
+
         if (release != null) {
-            embedIds(out.resolve(artistDir).resolve(albumDir), release, format,
-                    artistDir.contains("%(") || albumDir.contains("%("));
+            embedIds(albumPath, release, format, unknownFolder);
+        }
+
+        // After the tagging, never before - otherwise untagged files go up.
+        if (sftp != null) {
+            if (unknownFolder) {
+                System.out.println("Artist or album came from the metadata, so the folder is not "
+                        + "known up front - nothing uploaded. Pass --artist and --album for that.");
+            } else {
+                uploadTree(sftp, albumPath, keepLocal);
+            }
         }
 
         System.out.println();
@@ -640,6 +668,8 @@ public final class Goblin {
         boolean dryRun = false;
         boolean keepParts = false;
         boolean movieMode = false;
+        boolean upload = false;
+        boolean keepLocal = false;
         Integer year = null;
         Integer tmdbId = null;
         boolean useTmdb = true;
@@ -658,6 +688,8 @@ public final class Goblin {
                 case "--max-overlap" -> maxOverlap = Double.parseDouble(args[++i]);
                 case "--dry-run" -> dryRun = true;
                 case "--keep-parts" -> keepParts = true;
+                case "--upload" -> upload = true;
+                case "--keep-local" -> keepLocal = true;
                 case "--movie" -> movieMode = true;
                 case "--year" -> year = Integer.valueOf(args[++i]);
                 case "--tmdb-id" -> tmdbId = Integer.valueOf(args[++i]);
@@ -729,6 +761,15 @@ public final class Goblin {
             System.out.println();
             System.out.println("Dry run, nothing was downloaded.");
             return 0;
+        }
+
+        Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
+        if (upload && sftp == null) {
+            System.err.println("--upload was given, but " + CONFIG + " is missing or incomplete.");
+            return 2;
+        }
+        if (sftp != null) {
+            System.out.println("Uploading to " + sftp.describe());
         }
 
         Path work = Files.createTempDirectory(workRoot(), "goblin-concat-");
@@ -820,6 +861,10 @@ public final class Goblin {
                 deleteTree(work);
             }
         }
+
+        // Artwork travels too, otherwise the movie folder arrives on the
+        // media server without its poster.
+        uploadTree(sftp, targetDir, keepLocal);
 
         System.out.println();
         System.out.println("Done. " + target);
@@ -1166,7 +1211,7 @@ public final class Goblin {
             return false;
         }
         try {
-            String remote = root.relativize(file).toString().replace(java.io.File.separatorChar, '/');
+            String remote = remotePath(root, file);
             sftp.upload(file, remote);
             if (!keepLocal) {
                 Files.deleteIfExists(file);
@@ -1176,6 +1221,61 @@ public final class Goblin {
         } catch (IOException | InterruptedException e) {
             System.out.println("    upload failed, file stays local: " + e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Path the file gets below sftp.base.
+     *
+     * Relative to the working directory rather than to --out, so the --out
+     * folder is part of the remote path: with sftp.base = /srv/media and
+     * --out shows, an episode lands in /srv/media/shows. Local and remote end
+     * up with the same shape, and one sftp.base serves shows, movies and music
+     * at once.
+     *
+     * An --out pointing outside the working directory would produce a relative
+     * path starting with "..", which means nothing below sftp.base. There it
+     * falls back to being relative to --out, which is what this did before.
+     */
+    private static String remotePath(Path root, Path file) {
+        Path target = file.toAbsolutePath().normalize();
+
+        Path relative = between(Path.of("").toAbsolutePath().normalize(), target);
+        if (relative == null) {
+            relative = between(root.toAbsolutePath().normalize(), target);
+        }
+        if (relative == null) {
+            relative = target.getFileName();
+        }
+        return relative.toString().replace(java.io.File.separatorChar, '/');
+    }
+
+    /** Relative path from base to target, or null when target is not below base. */
+    private static Path between(Path base, Path target) {
+        try {
+            Path relative = base.relativize(target);
+            return (relative.getNameCount() > 0 && !relative.startsWith("..")) ? relative : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Uploads every file below a directory, keeping the layout. */
+    private static void uploadTree(Sftp sftp, Path dir, boolean keepLocal) {
+        if (sftp == null || !Files.isDirectory(dir)) {
+            return;
+        }
+
+        List<Path> files;
+        try (var entries = Files.walk(dir)) {
+            files = entries.filter(Files::isRegularFile).sorted().toList();
+        } catch (IOException e) {
+            System.out.println("Could not read " + dir + ": " + e.getMessage());
+            return;
+        }
+
+        for (Path file : files) {
+            uploadIfConfigured(sftp, dir, file, keepLocal);
         }
     }
 
