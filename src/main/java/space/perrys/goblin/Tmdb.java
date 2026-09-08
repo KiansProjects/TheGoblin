@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * Serien-Datenbank. Liefert die TMDb-ID (damit Jellyfin nicht raten muss)
@@ -34,9 +35,31 @@ final class Tmdb {
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
     }
 
-    static Tmdb fromEnvironment() {
-        String key = System.getenv("TMDB_API_KEY");
+    /**
+     * Holt den Key aus goblin.properties (tmdb.api_key). Fehlt er dort, wird
+     * die Umgebungsvariable TMDB_API_KEY benutzt - so funktionieren
+     * bestehende Aufsetzungen ueber Panel-Variablen weiter.
+     */
+    static Tmdb from(Path configFile) {
+        String key = fromFile(configFile);
+        if (key == null) {
+            key = System.getenv("TMDB_API_KEY");
+        }
         return (key == null || key.isBlank()) ? null : new Tmdb(key.strip());
+    }
+
+    private static String fromFile(Path configFile) {
+        if (!Files.isReadable(configFile)) {
+            return null;
+        }
+        Properties p = new Properties();
+        try (var in = Files.newInputStream(configFile)) {
+            p.load(in);
+        } catch (IOException e) {
+            return null;
+        }
+        String key = p.getProperty("tmdb.api_key");
+        return (key == null || key.isBlank()) ? null : key.strip();
     }
 
     /**

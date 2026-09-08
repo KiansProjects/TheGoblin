@@ -54,11 +54,13 @@ Ninjago (2011) [tmdbid-12345]/
 
 ## Serien-Datenbank
 
-Mit einem kostenlosen TMDb-Key holt TheGoblin Serien-ID, Erstausstrahlungsjahr, Poster und Hintergrundbild:
+Mit einem kostenlosen TMDb-Key holt TheGoblin Serien-ID, Erstausstrahlungsjahr, Poster und Hintergrundbild. Der Key steht in `goblin.properties`:
 
-```bash
-export TMDB_API_KEY=dein_key
 ```
+tmdb.api_key = dein_key
+```
+
+Ersatzweise wird die Umgebungsvariable `TMDB_API_KEY` gelesen; die Datei hat Vorrang. `goblin.properties` steht in der `.gitignore` — im Repo liegt nur `goblin.properties.example`.
 
 Die ID landet im Ordnernamen, damit Jellyfin die Serie nicht selbst erraten muss. Ohne Key läuft alles andere unverändert.
 
@@ -85,6 +87,74 @@ Gemessen an einem Testvideo mit Keyframes im 2-Sekunden-Raster, Schnitt ab 11,0 
 Der erste Abschnitt ist immer korrekt, weil er bei 0:00 anfängt und dort ein Keyframe liegt. Es geht nichts verloren, es ist nur vorne der Schluss des vorherigen Abschnitts mit dran.
 
 Wenn das stört: `--reencode`. Dann sitzt der Schnitt framegenau. Nur das Bild wird neu kodiert, der Ton wird kopiert.
+
+## Tonspuren
+
+Für Musik, die es nur auf YouTube gibt — eigene Aufnahmen, Fanprojekte, Netlabel-Veröffentlichungen, Podcasts, Vorträge:
+
+```
+audio <url> --artist "Name" --album "Album" --out output/musik
+```
+
+Ablage nach dem üblichen Muster für Musiksammlungen, das Navidrome, Jellyfin und Plex verstehen:
+
+```
+Interpret/
+  Album/
+    01 - Titel.mp3
+```
+
+Ohne `--artist` und `--album` werden Kanal und Playlisttitel benutzt. Tags und Titelbild werden eingebettet.
+
+| Option | Bedeutung |
+|---|---|
+| `--format` | mp3 (Standard), m4a, opus, flac, wav, oder `best` |
+| `--quality <0-10>` | 0 ist die beste Stufe, gilt nur für mp3 |
+| `--chapters` | ein langes Video anhand seiner Kapitel in Einzeltitel teilen |
+| `--artist`, `--album` | überschreiben, was aus den Metadaten käme |
+| `--dry-run` | nur zeigen, wohin geschrieben würde |
+
+**Zu flac und wav:** YouTube liefert Opus oder AAC, also bereits verlustbehaftet. Eine Umwandlung nach flac macht die Dateien größer, nicht besser — die verlorene Information kommt nicht zurück. Wenn du ohne weitere Verluste arbeiten willst, nimm `--format best`: dann bleibt die Originalspur, wie sie ist, ohne Neukodierung.
+
+## Mehrteilige Videos zusammenfügen
+
+Für Material, das ein Kanal in mehreren Teilen hochgeladen hat — lange Let's Plays, Vorträge, Dokus:
+
+```
+concat <playlist-url> "Titel" --out output
+```
+
+Die Teile werden in Playlist-Reihenfolge geladen, an den Übergängen zugeschnitten und zu einer Datei zusammengefügt.
+
+### Was geschnitten wird
+
+**Abspann am Ende jedes Teils.** Erkannt über eine Stille, die bis zum Videoende durchläuft, oder ein Schwarzbild am Ende. Ein Outro mit durchlaufender Musik und Bild lässt sich so nicht finden — dafür gibt es `--outro <sekunden>` für einen festen Abzug oder `--no-outro`.
+
+**Doppelter Anfang.** Fängt ein Teil mit dem Ende des vorherigen an, wird der doppelte Teil entfernt. Verglichen werden die Lautstärkeverläufe beider Tonspuren über den normierten Korrelationskoeffizienten — grob genug, um Kodierungsunterschiede zu überstehen, fein genug für sekundengenaue Treffer.
+
+An einem Testübergang lag der echte Treffer bei 0,999, der beste Fehltreffer bei 0,80. Die Schwelle steht deshalb auf 0,90.
+
+### Optionen
+
+| Option | Bedeutung |
+|---|---|
+| `--outro <sek>` | fester Abzug am Ende statt Erkennung |
+| `--no-outro` | Abspann nicht schneiden |
+| `--overlap <sek>` | Suchfenster für die Überlappung, Standard 90 |
+| `--no-overlap` | Anfänge nicht schneiden |
+| `--min-overlap <sek>` | kürzeste Überlappung, Standard 1 |
+| `--max-overlap <sek>` | längste plausible Überlappung, Standard 30 |
+| `--min-score <0-1>` | Schwelle für einen Treffer, Standard 0.90 |
+| `--keep-parts` | Einzelteile nach dem Zusammenfügen behalten |
+| `--dry-run` | nur die Teile auflisten |
+
+Die Obergrenze für Überlappungen ist kein Schönheitsfehler: bei periodischer Musik wiederholt sich der Lautstärkeverlauf, und dann passt derselbe Anfang an mehreren Stellen. Ohne Grenze gewinnt gelegentlich der falsche Treffer.
+
+Vor dem Zusammenfügen wird jeder Teil neu kodiert, damit die Schnitte framegenau sitzen und alle Abschnitte dieselben Parameter haben. Bei langen Playlists dauert das entsprechend.
+
+### Grenzen
+
+Die Ausgabe im Log zeigt für jeden Teil, was erkannt wurde. Steht dort bei einem Übergang nichts, obwohl du eine Überlappung erwartest, hilft ein größeres `--overlap` oder ein niedrigeres `--min-score` — letzteres aber vorsichtig, unter 0,85 häufen sich Fehltreffer.
 
 ## Filme
 
@@ -261,6 +331,30 @@ series <url> "Name" -f "bv*[height<=1080]+ba" --container mkv
 ```
 
 Die Syntax ist die von yt-dlp.
+
+## Direkt auf einen anderen Server laden
+
+Statt im Serververzeichnis zu sammeln, kann TheGoblin jede fertige Datei per SFTP wegschieben und die lokale Kopie löschen. Nützlich, wenn die Mediathek auf einem anderen Rechner liegt als der Goblin läuft.
+
+`goblin.properties` ins Arbeitsverzeichnis legen (Vorlage: `goblin.properties.example`):
+
+```
+sftp.host = 192.168.1.50
+sftp.port = 22
+sftp.user = perry
+sftp.key  = /home/container/.ssh/id_ed25519
+sftp.base = /srv/media/serien
+```
+
+Dann `--upload` an `series`, `movie` oder `playlist --episodes` anhängen. Der Pfad unter `sftp.base` entspricht dem, was sonst unter `--out` entstanden wäre — Serienordner und Staffelunterordner werden auf dem Ziel angelegt.
+
+Umgesetzt über `curl`, das im Yolk ohnehin vorhanden ist und SFTP kann. Ein `sftp`-Binary wäre erst nachzurüsten.
+
+Nur Schlüsselauthentifizierung. Ein Passwort stünde im Klartext in der Datei und in der Prozessliste. Den öffentlichen Schlüssel neben den privaten legen (`id_ed25519.pub`), dann findet TheGoblin ihn selbst.
+
+**Fehlgeschlagene Uploads löschen nichts.** Ist das Ziel nicht erreichbar, bleibt die Datei lokal liegen und der Lauf geht weiter — du kannst sie später von Hand nachschieben. Mit `--keep-local` bleibt die Kopie grundsätzlich stehen.
+
+Das Disk-Limit des Servers begrenzt damit nur noch, was gerade in Arbeit ist, nicht die Gesamtmenge.
 
 ## Speicherplatz
 

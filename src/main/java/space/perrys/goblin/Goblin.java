@@ -21,6 +21,8 @@ public final class Goblin {
               goblin chapters <url> --formats         verfuegbare Formate auflisten
               goblin movie <url> <titel> [optionen]   Video als einzelnen Film ablegen
               goblin series <url> <titel> --movie      dasselbe ueber 'series'
+              goblin audio <url> [optionen]           Tonspur als Musikdatei ablegen
+              goblin concat <url> <titel>             Playlist zu einer Datei zusammenfuegen
               goblin playlist <url> <name>            fertige series-Zeilen erzeugen
               goblin playlist <url> <name> --episodes ein Video je Folge laden
                                                       --from/--to grenzen den
@@ -45,6 +47,9 @@ public final class Goblin {
                                       (Suchfenster, Standard 5)
                   --reencode          exakt schneiden statt auf Keyframes zu runden
                   --keep              das komplette Video nach dem Schneiden behalten
+                  --upload            fertige Dateien per SFTP hochladen
+                                      (Zugang in goblin.properties)
+                  --keep-local        lokale Kopie nach dem Upload behalten
                   --dry-run           nur zeigen, was passieren wuerde
               -v, --verbose           yt-dlp-Kommando und dessen Meldungen zeigen
 
@@ -72,6 +77,8 @@ public final class Goblin {
             case "chapters" -> chapters(args);
             case "playlist" -> playlist(args);
             case "movie" -> movie(args);
+            case "concat" -> concat(args);
+            case "audio" -> audio(args);
             default -> {
                 System.err.println("Unbekannter Befehl: " + args[0]);
                 System.err.print(USAGE);
@@ -143,12 +150,13 @@ public final class Goblin {
                                 int season, int startEpisode, Integer year, Integer tmdbId,
                                 boolean useTmdb, boolean withTitles, boolean fromTitle,
                                 boolean overwrite, boolean dryRun, boolean verbose,
+                                boolean upload, boolean keepLocal,
                                 String format, String container) throws Exception {
 
         requireTools(!dryRun);
 
         Tmdb.Series series = null;
-        Tmdb tmdb = useTmdb ? Tmdb.fromEnvironment() : null;
+        Tmdb tmdb = useTmdb ? Tmdb.from(CONFIG) : null;
         if (tmdb != null) {
             try {
                 series = (tmdbId != null) ? tmdb.byId(tmdbId) : tmdb.search(name);
@@ -223,6 +231,16 @@ public final class Goblin {
             return 0;
         }
 
+        Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
+        if (upload && sftp == null) {
+            System.err.println("--upload gesetzt, aber " + CONFIG + " fehlt oder ist unvollstaendig.");
+            return 2;
+        }
+        if (sftp != null) {
+            System.out.println("Upload nach " + sftp.describe());
+            System.out.println();
+        }
+
         int done = 0;
         int skipped = 0;
         int failed = 0;
@@ -244,6 +262,7 @@ public final class Goblin {
                 String stem = fileName.substring(0, fileName.lastIndexOf('.'));
                 YtDlp.download("https://youtu.be/" + entries.get(i)[0],
                         target.getParent().resolve(stem), format, container);
+                uploadIfConfigured(sftp, out, target, keepLocal);
                 done++;
             } catch (IOException e) {
                 // Ein kaputtes Video soll die restlichen 50 nicht verhindern
@@ -294,12 +313,16 @@ public final class Goblin {
         boolean useTmdb = true;
         boolean dryRun = false;
         boolean verbose = false;
+        boolean upload = false;
+        boolean keepLocal = false;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
                 case "-o", "--out" -> out = Path.of(args[++i]);
+                case "--upload" -> upload = true;
+                case "--keep-local" -> keepLocal = true;
                 case "--year" -> year = Integer.valueOf(args[++i]);
                 case "--tmdb-id" -> tmdbId = Integer.valueOf(args[++i]);
                 case "--no-tmdb" -> useTmdb = false;
@@ -326,7 +349,7 @@ public final class Goblin {
         System.out.println("Video: " + meta.title());
 
         Tmdb.Series film = null;
-        Tmdb tmdb = useTmdb ? Tmdb.fromEnvironment() : null;
+        Tmdb tmdb = useTmdb ? Tmdb.from(CONFIG) : null;
         if (tmdb != null) {
             try {
                 film = (tmdbId != null) ? tmdb.movieById(tmdbId) : tmdb.searchMovie(title);
@@ -337,7 +360,8 @@ public final class Goblin {
                 System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
             }
         } else if (useTmdb) {
-            System.out.println("Kein TMDB_API_KEY gesetzt, ueberspringe Artwork.");
+            System.out.println("Kein TMDb-Key (tmdb.api_key in " + CONFIG
+                    + " oder TMDB_API_KEY), ueberspringe Artwork.");
         }
 
         Integer folderYear = (year != null) ? year : (film != null ? film.year() : null);
@@ -358,6 +382,12 @@ public final class Goblin {
 
         Files.createDirectories(movieDir);
 
+        Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
+        if (upload && sftp == null) {
+            System.err.println("--upload gesetzt, aber " + CONFIG + " fehlt oder ist unvollstaendig.");
+            return 2;
+        }
+
         System.out.println("Video laden ...");
         String stem = fileName.substring(0, fileName.lastIndexOf('.'));
         YtDlp.download(url, movieDir.resolve(stem), format, container);
@@ -366,8 +396,285 @@ public final class Goblin {
             tmdb.downloadArtwork(film, movieDir);
         }
 
+        uploadIfConfigured(sftp, out, movieDir.resolve(fileName), keepLocal);
+
         System.out.println();
         System.out.println("Fertig. " + movieDir.resolve(fileName));
+        return 0;
+    }
+
+
+
+    // ------------------------------------------------------------------
+    // goblin audio <url>
+    // ------------------------------------------------------------------
+
+    /**
+     * Zieht die Tonspur aus einem Video oder einer Playlist.
+     *
+     * Ablage nach dem ueblichen Muster fuer Musiksammlungen:
+     * Interpret / Album / NN - Titel.ext
+     *
+     * Interpret und Album kommen aus den Angaben oder ersatzweise aus Kanal
+     * und Playlisttitel.
+     */
+    private static int audio(String[] args) throws Exception {
+        if (args.length < 2) {
+            System.err.println("Aufruf: goblin audio <url> [optionen]");
+            return 2;
+        }
+
+        String url = args[1];
+
+        Path out = Path.of("output/musik");
+        String artist = null;
+        String album = null;
+        String format = "mp3";
+        int quality = 0;
+        boolean splitChapters = false;
+        boolean dryRun = false;
+
+        for (int i = 2; i < args.length; i++) {
+            switch (args[i]) {
+                case "-o", "--out" -> out = Path.of(args[++i]);
+                case "--artist" -> artist = args[++i];
+                case "--album" -> album = args[++i];
+                case "--format", "-f" -> format = args[++i];
+                case "--quality" -> quality = Integer.parseInt(args[++i]);
+                case "--chapters" -> splitChapters = true;
+                case "--dry-run" -> dryRun = true;
+                default -> {
+                    System.err.println("Unbekannte Option: " + args[i]);
+                    return 2;
+                }
+            }
+        }
+
+        requireTools(!dryRun);
+
+        boolean isPlaylist = url.contains("list=") || url.contains("playlist")
+                || url.contains("video_ids=");
+
+        if (artist == null || album == null) {
+            String[] meta = isPlaylist
+                    ? YtDlp.playlistMeta(url)
+                    : new String[] {"", ""};
+
+            if (album == null && !meta[0].isBlank()) {
+                album = meta[0];
+            }
+            if (artist == null && !meta[1].isBlank()) {
+                artist = meta[1];
+            }
+        }
+
+        // Was sich nicht ermitteln liess, ueberlaesst das Muster yt-dlp.
+        String artistDir = (artist != null) ? Naming.sanitize(artist) : "%(artist,uploader)s";
+        String albumDir = (album != null) ? Naming.sanitize(album) : "%(album,title)s";
+
+        String fileName = isPlaylist
+                ? "%(playlist_index)02d - %(title)s.%(ext)s"
+                : "%(title)s.%(ext)s";
+        if (splitChapters) {
+            fileName = "%(section_number)02d - %(section_title)s.%(ext)s";
+        }
+
+        String template = out.resolve(artistDir).resolve(albumDir).resolve(fileName).toString();
+
+        System.out.println("Interpret: " + (artist != null ? artist : "(aus den Metadaten)"));
+        System.out.println("Album:     " + (album != null ? album : "(aus den Metadaten)"));
+        System.out.println("Format:    " + ("best".equalsIgnoreCase(format)
+                ? "Originalspur, keine Neukodierung" : format));
+        System.out.println("Muster:    " + template);
+        System.out.println();
+
+        if (dryRun) {
+            System.out.println("Dry-Run, es wurde nichts geladen.");
+            return 0;
+        }
+
+        if (!"best".equalsIgnoreCase(format) && List.of("flac", "wav").contains(format.toLowerCase())) {
+            System.out.println("Hinweis: YouTube liefert bereits verlustbehaftet. "
+                    + format + " macht die Dateien groesser, nicht besser.");
+            System.out.println();
+        }
+
+        YtDlp.audio(url, format, quality, template, splitChapters);
+
+        System.out.println();
+        System.out.println("Fertig. " + out.resolve(artistDir).resolve(albumDir));
+        return 0;
+    }
+
+    // ------------------------------------------------------------------
+    // goblin concat <playlist-url> <titel>
+    // ------------------------------------------------------------------
+
+    /**
+     * Fuegt die Videos einer Playlist zu einer Datei zusammen.
+     *
+     * Vor dem Zusammenfuegen wird je Teil geprueft, ob am Ende ein Abspann
+     * laeuft und ob der naechste Teil mit dem Ende des vorherigen beginnt.
+     * Beides wird weggeschnitten, damit keine Dopplung im fertigen Video
+     * landet.
+     */
+    private static int concat(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.err.println("Aufruf: goblin concat <playlist-url> <titel> [optionen]");
+            return 2;
+        }
+
+        String url = args[1];
+        String title = args[2];
+
+        Path out = Path.of("output");
+        double outroFixed = -1;
+        boolean detectOutro = true;
+        double overlapWindow = 90;
+        // 1 s reicht: bei echter Ueberlappung liegt die Korrelation nahe 1,
+        // Zufallstreffer bleiben deutlich darunter. Gemessen an einem
+        // Testuebergang: echter Treffer 0.999, bester Fehltreffer 0.80.
+        double minOverlap = 1;
+        double maxOverlap = 30;
+        double minScore = 0.90;
+        boolean dryRun = false;
+        boolean keepParts = false;
+        String format = YtDlp.FORMAT_H264;
+        String container = "mp4";
+
+        for (int i = 3; i < args.length; i++) {
+            switch (args[i]) {
+                case "-o", "--out" -> out = Path.of(args[++i]);
+                case "--outro" -> outroFixed = Double.parseDouble(args[++i]);
+                case "--no-outro" -> detectOutro = false;
+                case "--overlap" -> overlapWindow = Double.parseDouble(args[++i]);
+                case "--no-overlap" -> overlapWindow = 0;
+                case "--min-score" -> minScore = Double.parseDouble(args[++i]);
+                case "--min-overlap" -> minOverlap = Double.parseDouble(args[++i]);
+                case "--max-overlap" -> maxOverlap = Double.parseDouble(args[++i]);
+                case "--dry-run" -> dryRun = true;
+                case "--keep-parts" -> keepParts = true;
+                case "--best" -> {
+                    format = YtDlp.FORMAT_BEST;
+                    container = "mkv";
+                }
+                case "--format", "-f" -> format = args[++i];
+                case "--container" -> container = args[++i];
+                default -> {
+                    System.err.println("Unbekannte Option: " + args[i]);
+                    return 2;
+                }
+            }
+        }
+
+        requireTools(!dryRun);
+
+        List<String[]> entries = YtDlp.playlist(url);
+        if (entries.size() < 2) {
+            System.err.println("Weniger als zwei Videos - dafuer lohnt concat nicht.");
+            return 1;
+        }
+
+        System.out.printf("%d Teile%n", entries.size());
+        if (dryRun) {
+            for (int i = 0; i < entries.size(); i++) {
+                System.out.printf("  %2d. %s%n", i + 1,
+                        entries.get(i)[1].isBlank() ? entries.get(i)[0] : entries.get(i)[1]);
+            }
+            System.out.println();
+            System.out.println("Dry-Run, es wurde nichts geladen.");
+            return 0;
+        }
+
+        Path work = Files.createTempDirectory(workRoot(), "goblin-concat-");
+        Path target = out.resolve(Naming.sanitize(title) + "." + container);
+        Files.createDirectories(out);
+
+        try {
+            // 1. Alle Teile laden
+            List<Path> parts = new ArrayList<>();
+            for (int i = 0; i < entries.size(); i++) {
+                System.out.printf("Teil %d/%d laden ...%n", i + 1, entries.size());
+                parts.add(YtDlp.download("https://youtu.be/" + entries.get(i)[0],
+                        work.resolve(String.format("part-%03d", i + 1)), format, container));
+            }
+
+            // 2. Grenzen bestimmen
+            System.out.println();
+            System.out.println("Uebergaenge pruefen ...");
+
+            List<double[]> cuts = new ArrayList<>(); // je Teil: {start, ende}
+            for (int i = 0; i < parts.size(); i++) {
+                double duration = Ffprobe.duration(parts.get(i));
+                double start = 0;
+                double end = duration;
+
+                if (i < parts.size() - 1 && detectOutro) {
+                    if (outroFixed >= 0) {
+                        end = Math.max(0, duration - outroFixed);
+                    } else {
+                        var outro = OutroDetect.find(parts.get(i), duration);
+                        if (outro.isPresent()) {
+                            end = outro.getAsDouble();
+                        }
+                    }
+                }
+
+                if (i > 0 && overlapWindow > 0) {
+                    double prevEnd = cuts.get(i - 1)[1];
+                    double[] tail = AudioProbe.envelope(parts.get(i - 1),
+                            Math.max(0, prevEnd - overlapWindow),
+                            Math.min(overlapWindow, prevEnd));
+                    double[] head = AudioProbe.envelope(parts.get(i), 0, overlapWindow);
+
+                    var match = AudioProbe.bestMatch(tail, head, minOverlap, maxOverlap, minScore);
+                    if (match.isPresent()) {
+                        double lag = match.getAsDouble();
+                        double windowStart = Math.max(0, prevEnd - overlapWindow);
+                        double overlapLength = prevEnd - (windowStart + lag);
+                        if (overlapLength > 0.5 && overlapLength < overlapWindow) {
+                            start = overlapLength;
+                        }
+                    }
+                }
+
+                cuts.add(new double[] {start, end});
+                System.out.printf("  Teil %2d: %s bis %s%s%s%n", i + 1,
+                        Chapter.timecode(start), Chapter.timecode(end),
+                        start > 0 ? String.format("  (%.1fs Anfang doppelt)", start) : "",
+                        end < duration ? String.format("  (%.1fs Abspann)", duration - end) : "");
+            }
+
+            // 3. Teile zuschneiden und aneinanderhaengen
+            System.out.println();
+            System.out.println("Zusammenfuegen ...");
+
+            List<Path> segments = new ArrayList<>();
+            for (int i = 0; i < parts.size(); i++) {
+                double start = cuts.get(i)[0];
+                double end = cuts.get(i)[1];
+                if (end - start < 1.0) {
+                    System.out.printf("  Teil %d ist nach dem Schnitt leer, uebersprungen.%n", i + 1);
+                    continue;
+                }
+                Path segment = work.resolve(String.format("seg-%03d.%s", i + 1, container));
+                Ffmpeg.cut(parts.get(i), new Chapter(start, end, ""), segment, true);
+                segments.add(segment);
+            }
+
+            Ffmpeg.concat(segments, work.resolve("list.txt"), target);
+
+            if (keepParts) {
+                System.out.println("Teile bleiben in " + work);
+            }
+        } finally {
+            if (!keepParts) {
+                deleteTree(work);
+            }
+        }
+
+        System.out.println();
+        System.out.println("Fertig. " + target);
         return 0;
     }
 
@@ -405,6 +712,8 @@ public final class Goblin {
         boolean withTitles = false;
         boolean fromTitle = false;
         boolean overwrite = false;
+        boolean upload = false;
+        boolean keepLocal = false;
         boolean dryRun = false;
         boolean verbose = false;
         String format = YtDlp.FORMAT_H264;
@@ -424,6 +733,8 @@ public final class Goblin {
                 case "--no-tmdb" -> useTmdb = false;
                 case "--titles" -> withTitles = true;
                 case "--from-title" -> fromTitle = true;
+                case "--upload" -> upload = true;
+                case "--keep-local" -> keepLocal = true;
                 case "--overwrite" -> overwrite = true;
                 case "--dry-run" -> dryRun = true;
                 case "--verbose", "-v" -> verbose = true;
@@ -462,7 +773,7 @@ public final class Goblin {
         if (episodeMode) {
             return episodes(entries, name, Path.of(out), firstSeason, startEpisode,
                     year, tmdbId, useTmdb, withTitles, fromTitle, overwrite, dryRun, verbose,
-                    format, container);
+                    upload, keepLocal, format, container);
         }
 
         System.out.printf("%d Videos in der Playlist%n%n", entries.size());
@@ -515,6 +826,8 @@ public final class Goblin {
         Path chapterFile = null;
         double offset = 0;
         double snapWindow = 0;
+        boolean upload = false;
+        boolean keepLocal = false;
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
@@ -535,6 +848,8 @@ public final class Goblin {
                 case "--format", "-f" -> format = args[++i];
                 case "--chapters" -> chapterFile = Path.of(args[++i]);
                 case "--offset" -> offset = Double.parseDouble(args[++i]);
+                case "--upload" -> upload = true;
+                case "--keep-local" -> keepLocal = true;
                 case "--snap" -> snapWindow = (i + 1 < args.length && !args[i + 1].startsWith("-"))
                         ? Double.parseDouble(args[++i])
                         : 5.0;
@@ -579,7 +894,7 @@ public final class Goblin {
 
         // 2. Serie in der Datenbank nachschlagen
         Tmdb.Series series = null;
-        Tmdb tmdb = useTmdb ? Tmdb.fromEnvironment() : null;
+        Tmdb tmdb = useTmdb ? Tmdb.from(CONFIG) : null;
         if (tmdb != null) {
             try {
                 series = (tmdbId != null) ? tmdb.byId(tmdbId) : tmdb.search(name);
@@ -591,7 +906,8 @@ public final class Goblin {
                 System.out.println("TMDb nicht erreichbar, mache ohne weiter: " + e.getMessage());
             }
         } else if (useTmdb) {
-            System.out.println("Kein TMDB_API_KEY gesetzt, ueberspringe Artwork.");
+            System.out.println("Kein TMDb-Key (tmdb.api_key in " + CONFIG
+                    + " oder TMDB_API_KEY), ueberspringe Artwork.");
         }
 
         Integer folderYear = (year != null) ? year : (series != null ? series.year() : null);
@@ -612,6 +928,15 @@ public final class Goblin {
         if (dryRun) {
             System.out.println("Dry-Run, es wurde nichts geschrieben.");
             return 0;
+        }
+
+        Sftp sftp = upload ? Sftp.fromConfig(CONFIG) : null;
+        if (upload && sftp == null) {
+            System.err.println("--upload gesetzt, aber " + CONFIG + " fehlt oder ist unvollstaendig.");
+            return 2;
+        }
+        if (sftp != null) {
+            System.out.println("Upload nach " + sftp.describe());
         }
 
         Files.createDirectories(seasonDir);
@@ -636,6 +961,7 @@ public final class Goblin {
                         Naming.episodeFile(name, season, startEpisode + i, c.title(), container));
                 Ffmpeg.cut(source, c, target, reencode);
                 System.out.println("  " + target.getFileName());
+                uploadIfConfigured(sftp, out, target, keepLocal);
             }
 
             if (keep) {
@@ -674,6 +1000,35 @@ public final class Goblin {
                 : Path.of(override);
         Files.createDirectories(root);
         return root;
+    }
+
+    /** Konfigurationsdatei fuer den SFTP-Upload. */
+    private static final Path CONFIG = Path.of("goblin.properties");
+
+    /**
+     * Laedt eine fertige Datei hoch und loescht sie danach lokal. Ohne
+     * konfigurierten SFTP-Zugang passiert nichts und die Datei bleibt liegen.
+     *
+     * @param root    Verzeichnis, relativ zu dem der Zielpfad gebildet wird
+     * @param keepLocal true laesst die lokale Kopie stehen
+     * @return true, wenn hochgeladen wurde
+     */
+    private static boolean uploadIfConfigured(Sftp sftp, Path root, Path file, boolean keepLocal) {
+        if (sftp == null) {
+            return false;
+        }
+        try {
+            String remote = root.relativize(file).toString().replace(java.io.File.separatorChar, '/');
+            sftp.upload(file, remote);
+            if (!keepLocal) {
+                Files.deleteIfExists(file);
+            }
+            System.out.println("    hochgeladen: " + remote);
+            return true;
+        } catch (IOException | InterruptedException e) {
+            System.out.println("    Upload fehlgeschlagen, Datei bleibt lokal: " + e.getMessage());
+            return false;
+        }
     }
 
     /** Nimmt den ersten Nicht-Options-Parameter nach der URL als Serienname. */

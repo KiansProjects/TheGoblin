@@ -1,0 +1,18 @@
+# Konfiguration fuer TheGoblin.
+# Diese Datei nach goblin.properties kopieren und ins Arbeitsverzeichnis
+# legen (/home/container). goblin.properties gehoert NICHT ins Repo -
+# sie steht in der .gitignore.
+
+# TMDb-Key fuer Serien-ID, Jahr und Artwork.
+# Ohne Key laeuft alles andere unveraendert.
+# Alternativ die Umgebungsvariable TMDB_API_KEY; die Datei hat Vorrang.
+tmdb.api_key =
+
+# SFTP-Ziel fuer --upload.
+# Nur Schluesselauthentifizierung - ein Passwort waere im Klartext
+# in dieser Datei und in der Prozessliste sichtbar.
+sftp.host = 192.168.1.50
+sftp.port = 22
+sftp.user = perry
+sftp.key  = /home/container/.ssh/id_ed25519
+sftp.base = /srv/media/serien

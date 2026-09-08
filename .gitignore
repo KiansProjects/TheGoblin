@@ -11,6 +11,9 @@ target/
 *.ipr
 out/
 
+# Lokale Konfiguration, enthaelt Zugangsdaten
+goblin.properties
+
 # Sonstiges
 *.log
 .DS_Store

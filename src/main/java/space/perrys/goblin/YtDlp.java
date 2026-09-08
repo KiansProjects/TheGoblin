@@ -142,6 +142,65 @@ final class YtDlp {
         return out;
     }
 
+    /**
+     * Titel und Kanal einer Playlist, ohne die Eintraege einzeln abzurufen.
+     *
+     * @return {Titel, Kanal}, Felder koennen leer sein
+     */
+    static String[] playlistMeta(String url) {
+        List<String> cmd = new ArrayList<>(List.of(
+                "yt-dlp", "--no-warnings", "--flat-playlist", "--playlist-items", "0", "-J"));
+        cmd.addAll(tokenize(System.getenv("YTDLP_ARGS")));
+        cmd.add(url);
+
+        try {
+            Map<String, Object> root = Json.object(Json.parse(Proc.capture(cmd)));
+            String title = Json.str(root, "title");
+            String uploader = Json.str(root, "uploader");
+            if (uploader == null) {
+                uploader = Json.str(root, "channel");
+            }
+            return new String[] {title == null ? "" : title, uploader == null ? "" : uploader};
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            return new String[] {"", ""};
+        }
+    }
+
+    /**
+     * Zieht die Tonspur heraus.
+     *
+     * Die Umwandlung uebernimmt yt-dlp mit ffmpeg, samt Tags und Titelbild.
+     *
+     * @param format mp3, flac, wav, opus, m4a - oder "best" fuer die
+     *               Originalspur ohne Neukodierung
+     * @param outputTemplate Ausgabemuster im yt-dlp-Format
+     * @param splitChapters true legt je Kapitel eine eigene Datei an
+     */
+    static void audio(String url, String format, int quality, String outputTemplate,
+                      boolean splitChapters) throws IOException, InterruptedException {
+
+        List<String> cmd = base();
+        cmd.addAll(List.of("--extract-audio", "--embed-metadata", "--embed-thumbnail"));
+
+        if (!"best".equalsIgnoreCase(format)) {
+            cmd.addAll(List.of("--audio-format", format,
+                    "--audio-quality", String.valueOf(quality)));
+        }
+
+        if (splitChapters) {
+            cmd.add("--split-chapters");
+            cmd.addAll(List.of("-o", "chapter:" + outputTemplate));
+            // Die ungeteilte Datei nicht behalten
+            cmd.addAll(List.of("-o", "pl_video:" + System.getProperty("java.io.tmpdir")
+                    + "/goblin-full-%(id)s.%(ext)s"));
+        } else {
+            cmd.addAll(List.of("-o", outputTemplate));
+        }
+
+        cmd.add(url);
+        Proc.inherit(cmd);
+    }
+
     /** Zeigt alle verfuegbaren Formate des Videos an. */
     static void listFormats(String url) throws IOException, InterruptedException {
         List<String> cmd = base();
@@ -183,11 +242,18 @@ final class YtDlp {
      * dass dafuer der Code angefasst werden muss.
      */
     private static List<String> base() {
-        return base(false);
+        return base(false, false);
     }
 
     private static List<String> base(boolean verbose) {
-        List<String> cmd = new ArrayList<>(List.of("yt-dlp", "--no-playlist"));
+        return base(verbose, true);
+    }
+
+    private static List<String> base(boolean verbose, boolean singleVideo) {
+        List<String> cmd = new ArrayList<>(List.of("yt-dlp"));
+        if (singleVideo) {
+            cmd.add("--no-playlist");
+        }
         cmd.add(verbose ? "-v" : "--no-warnings");
 
         if (Files.isReadable(COOKIES)) {

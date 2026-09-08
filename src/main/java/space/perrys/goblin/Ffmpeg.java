@@ -42,6 +42,29 @@ final class Ffmpeg {
         Proc.inherit(cmd);
     }
 
+    /**
+     * Haengt fertige Abschnitte aneinander. Die Abschnitte muessen dieselben
+     * Kodierparameter haben - beim Weg ueber cut(..., reencode=true) ist das
+     * gegeben, deshalb reicht hier das blosse Kopieren der Streams.
+     */
+    static void concat(List<Path> segments, Path listFile, Path output)
+            throws IOException, InterruptedException {
+
+        StringBuilder list = new StringBuilder();
+        for (Path segment : segments) {
+            list.append("file '").append(segment.toAbsolutePath()).append("'\n");
+        }
+        java.nio.file.Files.writeString(listFile, list.toString());
+
+        Proc.inherit(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", listFile.toString(),
+                "-c", "copy",
+                "-movflags", "+faststart",
+                output.toString()));
+    }
+
     private static String fmt(double seconds) {
         return String.format(Locale.ROOT, "%.3f", seconds);
     }
