@@ -112,7 +112,43 @@ Without `--artist` and `--album` the channel and the playlist title are used. Ta
 | `--quality <0-10>` | 0 is the best level, applies to mp3 only |
 | `--chapters` | split one long video into individual tracks along its chapters |
 | `--artist`, `--album` | override what would come from the metadata |
+| `--musicbrainz` | look the album up and embed its MusicBrainz IDs |
+| `--mbid <id>` | pin the MusicBrainz release instead of searching |
 | `--dry-run` | only show where it would write |
+
+### MusicBrainz IDs
+
+For movies and shows the database ID travels in the folder name, `[tmdbid-12345]`.
+Music does not work that way: Jellyfin ignores file and folder names there and
+identifies albums through the **tags inside the files**. TMDb is no help either,
+it covers film and television only — the database Jellyfin uses for music is
+MusicBrainz.
+
+```
+audio <url> --artist "Daft Punk" --album "Discovery" --musicbrainz
+```
+
+That looks the release up and writes `MusicBrainz Album Id`, `Release Group Id`
+and `Artist Id` into every track afterwards, with ffmpeg, copying the streams —
+nothing is re-encoded and the embedded cover art survives. The layout on disk
+stays exactly as before.
+
+No API key is needed. MusicBrainz asks for an identifying User-Agent and at most
+one request per second instead; a run makes one lookup.
+
+Two things worth knowing:
+
+* **The search takes the first hit**, and a YouTube upload title is a fuzzy
+  thing to match on. The hit is printed before the download starts, so you can
+  see what it picked — and `--mbid <release-id>` pins it when the guess is wrong.
+* **`--artist` and `--album` are required** for the IDs to land. Without them
+  the folder name is a yt-dlp pattern that is only resolved during the download,
+  so TheGoblin does not know where the files will end up. It says so and skips
+  the tagging rather than guessing.
+
+Much of what this command is for — own recordings, fan projects, netlabel
+releases, podcasts — has no MusicBrainz entry at all. Then nothing is found,
+nothing is written, and the download is unaffected.
 
 **On flac and wav:** YouTube serves Opus or AAC, so already lossy. Converting to flac makes the files bigger, not better — the lost information does not come back. If you want to work without further loss, use `--format best`: then the original track stays as it is, with no re-encoding.
 

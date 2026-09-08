@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Entry point and command line.
@@ -433,6 +435,8 @@ public final class Goblin {
         int quality = 0;
         boolean splitChapters = false;
         boolean dryRun = false;
+        boolean useMusicBrainz = false;
+        String mbid = null;
 
         for (int i = 2; i < args.length; i++) {
             switch (args[i]) {
@@ -442,6 +446,11 @@ public final class Goblin {
                 case "--format", "-f" -> format = args[++i];
                 case "--quality" -> quality = Integer.parseInt(args[++i]);
                 case "--chapters" -> splitChapters = true;
+                case "--musicbrainz" -> useMusicBrainz = true;
+                case "--mbid" -> {
+                    mbid = args[++i];
+                    useMusicBrainz = true;
+                }
                 case "--dry-run" -> dryRun = true;
                 default -> {
                     System.err.println("Unknown option: " + args[i]);
@@ -481,11 +490,35 @@ public final class Goblin {
 
         String template = out.resolve(artistDir).resolve(albumDir).resolve(fileName).toString();
 
+        // Looked up before the download so a wrong hit is visible before
+        // anything lands on disk.
+        MusicBrainz.Release release = null;
+        if (useMusicBrainz) {
+            if (mbid == null && album == null) {
+                System.out.println("MusicBrainz needs an album name - pass --album or --mbid.");
+            } else {
+                try {
+                    MusicBrainz mb = new MusicBrainz();
+                    release = (mbid != null) ? mb.byId(mbid) : mb.search(artist, album);
+                    if (release == null) {
+                        System.out.println("MusicBrainz: no match, carrying on without IDs.");
+                    }
+                } catch (IOException | RuntimeException e) {
+                    System.out.println("MusicBrainz unreachable, carrying on without it: "
+                            + e.getMessage());
+                }
+            }
+        }
+
         System.out.println("Artist:  " + (artist != null ? artist : "(from the metadata)"));
         System.out.println("Album:   " + (album != null ? album : "(from the metadata)"));
         System.out.println("Format:  " + ("best".equalsIgnoreCase(format)
                 ? "original track, no re-encoding" : format));
         System.out.println("Pattern: " + template);
+        if (release != null) {
+            System.out.printf("MusicBrainz: %s - %s, ID %s%n",
+                    release.artist(), release.title(), release.id());
+        }
         System.out.println();
 
         if (dryRun) {
@@ -501,9 +534,77 @@ public final class Goblin {
 
         YtDlp.audio(url, format, quality, template, splitChapters);
 
+        if (release != null) {
+            embedIds(out.resolve(artistDir).resolve(albumDir), release, format,
+                    artistDir.contains("%(") || albumDir.contains("%("));
+        }
+
         System.out.println();
         System.out.println("Done. " + out.resolve(artistDir).resolve(albumDir));
         return 0;
+    }
+
+    /**
+     * Writes the MusicBrainz IDs into every track of the album folder.
+     *
+     * This is the music equivalent of the {@code [tmdbid-...]} a movie folder
+     * carries, but it has to go into the files: Jellyfin ignores file and
+     * folder names for music and identifies albums through embedded tags.
+     *
+     * @param unknownFolder true when artist or album came from the metadata, so
+     *                      the folder name is a yt-dlp pattern and not known here
+     */
+    private static void embedIds(Path albumDir, MusicBrainz.Release release,
+                                 String format, boolean unknownFolder) {
+        if (unknownFolder) {
+            System.out.println("Artist or album came from the metadata, so the folder is not "
+                    + "known up front - no IDs written. Pass --artist and --album for that.");
+            return;
+        }
+
+        // Picard's spelling depends on the container: Vorbis comments carry
+        // MUSICBRAINZ_ALBUMID, ID3v2 and MP4 carry "MusicBrainz Album Id".
+        boolean vorbis = List.of("flac", "opus", "ogg").contains(format.toLowerCase());
+
+        String[][] fields = {
+            {"MUSICBRAINZ_ALBUMID", "MusicBrainz Album Id", release.id()},
+            {"MUSICBRAINZ_RELEASEGROUPID", "MusicBrainz Release Group Id", release.releaseGroupId()},
+            {"MUSICBRAINZ_ALBUMARTISTID", "MusicBrainz Album Artist Id", release.artistId()},
+            {"MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id", release.artistId()},
+        };
+
+        Map<String, String> tags = new LinkedHashMap<>();
+        for (String[] field : fields) {
+            if (field[2] != null) {
+                tags.put(vorbis ? field[0] : field[1], field[2]);
+            }
+        }
+
+        if (tags.isEmpty() || !Files.isDirectory(albumDir)) {
+            return;
+        }
+
+        List<Path> tracks;
+        try (var entries = Files.list(albumDir)) {
+            tracks = entries.filter(Files::isRegularFile).sorted().toList();
+        } catch (IOException e) {
+            System.out.println("Could not read " + albumDir + ": " + e.getMessage());
+            return;
+        }
+
+        int done = 0;
+        for (Path track : tracks) {
+            try {
+                Ffmpeg.tag(track, tags);
+                done++;
+            } catch (IOException | InterruptedException e) {
+                // A cover image or a leftover file is not a track; skipping one
+                // is not worth failing the whole run over.
+                System.out.println("  not tagged: " + track.getFileName() + " (" + e.getMessage() + ")");
+            }
+        }
+
+        System.out.printf("MusicBrainz IDs written into %d of %d files.%n", done, tracks.size());
     }
 
     // ------------------------------------------------------------------

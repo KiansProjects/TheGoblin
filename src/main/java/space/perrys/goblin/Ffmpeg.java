@@ -65,6 +65,39 @@ final class Ffmpeg {
                 output.toString()));
     }
 
+    /**
+     * Writes metadata into an existing file without re-encoding anything.
+     * ffmpeg cannot edit in place, so it writes a sibling and moves it over.
+     * {@code -map 0} keeps every stream, embedded cover art included.
+     */
+    static void tag(Path file, java.util.Map<String, String> tags)
+            throws IOException, InterruptedException {
+
+        String name = file.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        String ext = (dot < 0) ? "" : name.substring(dot);
+        Path tmp = file.resolveSibling(name + ".tagging" + ext);
+
+        List<String> cmd = new ArrayList<>(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-i", file.toString(),
+                "-map", "0", "-c", "copy"));
+
+        for (var entry : tags.entrySet()) {
+            cmd.add("-metadata");
+            cmd.add(entry.getKey() + "=" + entry.getValue());
+        }
+        cmd.add(tmp.toString());
+
+        try {
+            Proc.inherit(cmd);
+            java.nio.file.Files.move(tmp, file,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmp);
+        }
+    }
+
     private static String fmt(double seconds) {
         return String.format(Locale.ROOT, "%.3f", seconds);
     }
