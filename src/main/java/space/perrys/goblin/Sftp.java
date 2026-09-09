@@ -42,6 +42,9 @@ final class Sftp {
     private final boolean insecure;
     private final String base;
 
+    /** The doubled-base note is worth saying once per run, not per file. */
+    private boolean warnedAboutBase;
+
     private Sftp(String host, int port, String user, Path key, String password,
                  String hostKey, boolean insecure, String base) {
         this.host = host;
@@ -154,6 +157,15 @@ final class Sftp {
      * @param remoteRelative path below sftp.base, with / as the separator
      */
     void upload(Path localFile, String remoteRelative) throws IOException, InterruptedException {
+        if (!warnedAboutBase) {
+            warnedAboutBase = true;
+            if (doublesBase(base, remoteRelative)) {
+                System.out.println("  Note: sftp.base is \"" + base + "\" and --out starts with the "
+                        + "same folder, so this lands in " + base + "/" + firstSegment(remoteRelative)
+                        + "/... - drop it from --out if that is not what you meant.");
+            }
+        }
+
         String url = "sftp://" + host + ":" + port + base + "/" + encodePath(remoteRelative);
 
         // --globoff is load-bearing, not cosmetic: curl treats [] and {} as glob
@@ -212,6 +224,25 @@ final class Sftp {
     private static String value(Properties p, String key) {
         String v = p.getProperty(key);
         return (v == null || v.isBlank()) ? null : v.strip();
+    }
+
+    /**
+     * Whether --out repeats the last folder of sftp.base.
+     *
+     * The remote path is sftp.base plus the local path, so "sftp.base =
+     * /media" together with "--out media/shows" writes to /media/media/shows.
+     * That is a configuration mistake nobody notices until they look at the
+     * target, so it is worth one line of output.
+     */
+    static boolean doublesBase(String base, String remoteRelative) {
+        int slash = base.lastIndexOf('/');
+        String last = base.substring(slash + 1);
+        return !last.isEmpty() && last.equals(firstSegment(remoteRelative));
+    }
+
+    private static String firstSegment(String path) {
+        int slash = path.indexOf('/');
+        return (slash < 0) ? path : path.substring(0, slash);
     }
 
     private static String stripTrailingSlash(String s) {

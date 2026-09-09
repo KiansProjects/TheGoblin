@@ -497,6 +497,11 @@ Two details worth knowing:
 * An `--out` pointing outside the working directory (an absolute path
   elsewhere) has no meaningful position below `sftp.base`. There the remote
   path falls back to being relative to `--out` itself.
+* **Do not repeat `sftp.base` in `--out`.** With `sftp.base = /media`, the
+  right value is `--out shows`, not `--out media/shows` — the latter writes to
+  `/media/media/shows`. The two get concatenated, they do not overlap. The run
+  says so on the first upload when it spots the doubled folder, and the
+  `Uploading to … -> /media` line at the start always shows the base in use.
 
 Implemented through `curl`, which is present in the yolk anyway and can do SFTP. An `sftp` binary would have to be installed first.
 
