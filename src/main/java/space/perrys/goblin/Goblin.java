@@ -25,6 +25,7 @@ public final class Goblin {
               goblin audio <url> [options]            store the audio track as music
               goblin concat <url> <title>             join a playlist into one file
               goblin concat <url> <title> --movie     the same, stored as a movie
+              goblin tidy <folder> --type <kind>      sort loose files into place
               goblin playlist <url> <name>            print ready-made shows lines
               goblin playlist <url> <name> --episodes one video per episode
                                                       --from/--to limit the range,
@@ -54,6 +55,13 @@ public final class Goblin {
                   --dry-run           only show what would happen
               -v, --verbose           show the yt-dlp command and its messages
 
+            Options for 'tidy':
+                  --type <kind>       comics, music, shows or movies (required)
+              -o, --out <path>        where the tidy tree goes (default: the folder itself)
+                  --apply             actually move; without it nothing is touched
+                  --no-database       skip TMDb, sort from names alone
+                  --log <file>        where the list of moves goes
+
             Environment:
               TMDB_API_KEY            for the show ID and artwork (optional)
             """;
@@ -82,6 +90,7 @@ public final class Goblin {
             case "movie" -> movie(args);
             case "concat" -> concat(args);
             case "audio" -> audio(args);
+            case "tidy" -> Tidy.run(args);
             default -> {
                 System.err.println("Unknown command: " + args[0]);
                 System.err.print(USAGE);
@@ -1248,7 +1257,8 @@ public final class Goblin {
     }
 
     /** Configuration file for the SFTP upload. */
-    private static final Path CONFIG = Path.of("goblin.properties");
+    /** Package-private: Tidy reads the TMDb key from the same file. */
+    static final Path CONFIG = Path.of("goblin.properties");
 
     /**
      * Uploads a finished file and deletes it locally afterwards. Without a

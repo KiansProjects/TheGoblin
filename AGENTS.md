@@ -89,6 +89,10 @@ Changing them means changing them without a safety net.
 | `AudioProbe.java` | detect duplicate starts through loudness envelopes |
 | `TitleNumbers.java` | read season and episode from the video title |
 | `Naming.java` | build paths the way Jellyfin's scanner expects them |
+| `Tidy.java` | sort a folder of loose files into that layout |
+| `Cbz.java` | read ComicInfo.xml out of a comic archive |
+| `Tags.java` | read the tags of an audio file through ffprobe |
+| `Guess.java` | read series, issue, title and year out of a file name |
 | `Tmdb.java` | show ID, year, poster, backdrop image |
 | `MusicBrainz.java` | album IDs for music, embedded as tags rather than in the folder name; track lengths |
 | `Trim.java` | cut a music video back to the length of the album track |

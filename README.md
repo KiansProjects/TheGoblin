@@ -459,6 +459,91 @@ shows <url> "Name" -f "bv*[height<=1080]+ba" --container mkv
 
 The syntax is yt-dlp's.
 
+## Tidying a folder that arrived some other way
+
+The other commands leave a tidy library because they know what they downloaded.
+`tidy` is for everything else — a zip somebody unpacked into the music folder,
+thirty-four comics dropped in a heap, a season of episodes with release-group
+names.
+
+```
+tidy <folder> --type comics|music|shows|movies
+```
+
+**Nothing moves without `--apply`.** The plain run prints what it would do and
+stops. Read it before you let it loose.
+
+### Where it gets its answers
+
+Three sources, in this order — and the database is last, not first:
+
+1. **What the file says about itself.** A `.cbz` is a zip and usually holds a
+   `ComicInfo.xml` naming series, issue and year. An audio file carries tags.
+   Both were written by whoever produced the file and survive every rename on
+   the way to you. No API key, no network.
+2. **What the file name says.** Weaker, but it is all a video file offers.
+   `Ninjago.S01E02.Home.1080p.WEB-DL.x264.mkv` gives up series, season, episode
+   and title; the release notes are cut off at the first `1080p`, `x264` or
+   `BluRay`.
+3. **What TMDb says**, for film and television only — to add the ID and the
+   year, never to identify something from nothing. One lookup per distinct
+   series name, not per file. Without a key it sorts anyway, just without IDs.
+   `--no-database` skips it entirely.
+
+### What comes out
+
+| `--type` | Result |
+| --- | --- |
+| `comics` | `Saga (2012)/Saga #012 (2013).cbz` |
+| `music` | `Linkin Park/Meteora/07 - Faint.mp3` |
+| `shows` | `Ninjago (2011) [tmdbid-38693]/Season 01/Ninjago S01E01 - Way of the Ninja.mkv` |
+| `movies` | `Inception (2010) [tmdbid-27205]/Inception (2010).mkv` |
+
+The comic folder carries the **earliest** year seen for that series, the file
+carries the issue's own — otherwise one run would scatter across `Saga (2012)`
+and `Saga (2013)`.
+
+Subtitles follow their episode and are renamed with it, including the language
+marker: `Show.S01E01.Title.en.srt` beside a video with release tags in its name
+becomes `Show S01E01 - Title.en.srt`.
+
+### What it refuses to do
+
+Guessing is where a tidier does damage, so it declines rather than inventing:
+
+* **A file it cannot identify stays exactly where it is** and is listed at the
+  end. An unsorted file is a small annoyance; a file filed under the wrong
+  series is one you have to hunt for.
+* **A name made only of digits is not a series.** A scan called
+  `1234567890.cbz` is a barcode, and it is left alone.
+* **Folder names only count below the folder being tidied.** Sorting `music/`
+  will not decide that `music` is the artist and `dump` the album.
+* **Nothing is overwritten.** Two files wanting the same name means the second
+  is skipped and reported.
+
+### Getting back
+
+Every move is appended to `goblin-tidy.log` in the target folder as
+`from<TAB>to`, oldest first. That is the way back:
+
+```
+tac goblin-tidy.log | while IFS=$'\t' read -r from to; do mkdir -p "$(dirname "$from")"; mv "$to" "$from"; done
+```
+
+`--log <file>` puts it somewhere else.
+
+### Pointing it at a library on the same machine
+
+The files usually live in another container. Both are directories on the host,
+so run it there against the volume rather than trying to reach across:
+
+```
+java -jar goblin.jar tidy /var/lib/pelican/volumes/<uuid>/media/books/Comics --type comics
+```
+
+*Exercised against fixture trees for all four types, including the moving, the
+log and the subtitles. Never yet run against a real library.*
+
 ## Uploading straight to another server
 
 Instead of collecting files in the server directory, TheGoblin can push every finished file away over SFTP and delete the local copy. Useful when the media library sits on a different machine than the goblin runs on.
