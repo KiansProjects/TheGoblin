@@ -99,26 +99,39 @@ final class Ffmpeg {
     }
 
     /**
-     * Shortens a file to {@code seconds}, keeping the start.
+     * Reduces a file to the stretch from {@code start} over {@code seconds}.
      *
      * Copies the streams, so nothing is re-encoded and a second lossy
-     * generation is avoided. The cut therefore snaps to the next frame
-     * boundary, which for audio is a matter of milliseconds. Like
-     * {@link #tag}, it writes a sibling and moves it over.
+     * generation is avoided. The cut therefore snaps to a frame boundary,
+     * which for audio is a matter of milliseconds. Like {@link #tag}, it
+     * writes a sibling and moves it over.
      */
-    static void trimTo(Path file, double seconds) throws IOException, InterruptedException {
+    static void trim(Path file, double start, double seconds)
+            throws IOException, InterruptedException {
+
         String name = file.getFileName().toString();
         int dot = name.lastIndexOf('.');
         String ext = (dot < 0) ? "" : name.substring(dot);
         Path tmp = file.resolveSibling(name + ".trimming" + ext);
 
+        List<String> cmd = new ArrayList<>(List.of(
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y"));
+        if (start > 0) {
+            cmd.addAll(List.of("-ss", fmt(start)));
+        }
+        cmd.addAll(List.of(
+                "-i", file.toString(),
+                "-t", fmt(seconds),
+                "-map", "0", "-c", "copy"));
+        if (start > 0) {
+            // Seeking with a stream copy leaves the first packet at a negative
+            // timestamp; without this the player would show the old offset.
+            cmd.addAll(List.of("-avoid_negative_ts", "make_zero"));
+        }
+        cmd.add(tmp.toString());
+
         try {
-            Proc.inherit(List.of(
-                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                    "-i", file.toString(),
-                    "-t", fmt(seconds),
-                    "-map", "0", "-c", "copy",
-                    tmp.toString()));
+            Proc.inherit(cmd);
             java.nio.file.Files.move(tmp, file,
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } finally {

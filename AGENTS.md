@@ -85,6 +85,7 @@ Changing them means changing them without a safety net.
 | `ChapterParser.java` | timestamps out of the video description |
 | `CutDetect.java` | find the real picture change near a timestamp |
 | `OutroDetect.java` | find the closing credits at the end of a part |
+| `Silence.java` | silence at the start and at the end of a file |
 | `AudioProbe.java` | detect duplicate starts through loudness envelopes |
 | `TitleNumbers.java` | read season and episode from the video title |
 | `Naming.java` | build paths the way Jellyfin's scanner expects them |

@@ -176,14 +176,23 @@ file:
    number in the file name is the fallback, and that is reported as such.
 2. Files no more than `--trim-tolerance` seconds over the release length are
    left alone. Four seconds by default, which covers encoders and a fade.
-3. Everything longer is cut — at the **trailing silence** when there is one
+3. Dead air at the **start** is cut, but never more of it than the surplus
+   covers — see below.
+4. The rest comes off the end: at the **trailing silence** when there is one
    near the expected end, otherwise at the release length exactly. Cutting at
    the silence ends the file on the last note instead of mid-fade.
 
 The cut copies the streams, so nothing is re-encoded and the tags and cover art
-survive. **Only the end is cut.** Extra material at the start would have to be
-found rather than derived, and cutting the wrong end would take the first bar
-of the song with it.
+survive.
+
+**On the silence at the start.** Rips often open with a second or three of
+nothing before the music comes in. That gets removed — but only when the file
+is over-length anyway, and only up to the surplus. A file that is eight seconds
+too long keeps a thirty-second lead: a lead that big means the file is short at
+the back or the track was matched to the wrong song, and in both cases cutting
+the front would take the first beat with it. Silence shorter than half a second
+is the natural gap before the first beat and stays. Only silence that starts at
+the very beginning counts; a quiet passage twelve seconds in is music.
 
 Files that are *shorter* than the release version are never touched — that is a
 radio edit or a different mix, and the run says so. Same for a track MusicBrainz

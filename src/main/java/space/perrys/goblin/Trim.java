@@ -19,9 +19,9 @@ import java.util.Set;
  * shows up as a run time that disagrees with every other copy of the song.
  *
  * MusicBrainz knows what the track is supposed to be long, so the difference
- * is measurable rather than guessed. Only the end is cut: extra material at
- * the start would have to be found, not derived, and cutting the wrong end
- * would take the first bar of the song with it.
+ * is measurable rather than guessed. Dead air at the start is cut too, but
+ * only as far as that surplus covers it - silence has to be found rather than
+ * derived, and cutting one second too many takes the first beat with it.
  */
 final class Trim {
 
@@ -130,25 +130,44 @@ final class Trim {
             return false;
         }
 
+        // Dead air at the front, but never more of it than the surplus covers.
+        // A longer lead than that would mean the file is short at the back or
+        // the match is wrong, and either way the first beat is at risk.
+        double start = 0;
+        OptionalDouble lead = Silence.leading(file);
+        if (lead.isPresent() && lead.getAsDouble() <= over) {
+            start = lead.getAsDouble();
+        }
+
         // The release length says how much is too much, the trailing silence
         // says where the music actually stops. Prefer the silence when it sits
         // anywhere near the expected end - cutting there ends the file on the
         // last note instead of mid-fade.
-        double at = track.seconds();
-        String reason = "at the release length";
+        double end = start + track.seconds();
+        String reason = "to the release length";
 
-        OptionalDouble silence = OutroDetect.silenceTail(file, local);
+        OptionalDouble silence = Silence.trailing(file, Math.max(0, local - Silence.SEARCH), local);
         if (silence.isPresent()
-                && silence.getAsDouble() >= track.seconds() - tolerance
+                && silence.getAsDouble() > start
+                && silence.getAsDouble() - start >= track.seconds() - tolerance
                 && silence.getAsDouble() < local) {
-            at = silence.getAsDouble();
+            end = silence.getAsDouble();
             reason = "at the trailing silence";
         }
 
+        end = Math.min(end, local);
+        if (end - start <= 0) {
+            System.out.println("  " + name + ": nothing left after the cut, left alone.");
+            return false;
+        }
+
         try {
-            Ffmpeg.trimTo(file, at);
-            System.out.printf("  %s: %s -> %s, %s (%s).%n",
-                    name, time(local), time(at), reason, track.title());
+            Ffmpeg.trim(file, start, end - start);
+            System.out.printf("  %s: %s -> %s, %s%s (%s).%n",
+                    name, time(local), time(end - start), reason,
+                    start > 0 ? String.format(Locale.ROOT,
+                            ", %.1f s of dead air off the front", start) : "",
+                    track.title());
             return true;
         } catch (IOException | InterruptedException e) {
             System.out.println("  " + name + ": not shortened (" + e.getMessage() + ")");

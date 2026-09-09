@@ -18,16 +18,14 @@ import java.util.regex.Pattern;
  */
 final class OutroDetect {
 
-    private static final Pattern SILENCE_START =
-            Pattern.compile("silence_start:\\s*([0-9.]+)");
     private static final Pattern BLACK_START =
             Pattern.compile("black_start:([0-9.]+)\\s+black_end:([0-9.]+)");
 
     /** How far back from the end the search runs. */
-    private static final double SEARCH = 120.0;
+    private static final double SEARCH = Silence.SEARCH;
 
     /** Shortest outro that still counts as one. */
-    private static final double MIN_OUTRO = 2.0;
+    private static final double MIN_OUTRO = Silence.MIN_TAIL;
 
     private OutroDetect() {
     }
@@ -38,7 +36,7 @@ final class OutroDetect {
     static OptionalDouble find(Path media, double duration) {
         double from = Math.max(0, duration - SEARCH);
 
-        OptionalDouble silence = trailingSilence(media, from, duration);
+        OptionalDouble silence = Silence.trailing(media, from, duration);
         OptionalDouble black = trailingBlack(media, from, duration);
 
         // The earliest plausible point wins: if the black frame starts before
@@ -52,46 +50,9 @@ final class OutroDetect {
         return black;
     }
 
-    /**
-     * The silence signal on its own, for material that has no picture to look
-     * at - an extracted audio track whose video ran a few seconds longer than
-     * the music.
-     *
-     * @return the point from which it is silent to the end, or empty
-     */
-    static OptionalDouble silenceTail(Path media, double duration) {
-        return trailingSilence(media, Math.max(0, duration - SEARCH), duration);
-    }
-
-    /** Silence that runs through to the end. */
-    private static OptionalDouble trailingSilence(Path media, double from, double duration) {
-        String out = analyse(media, from, "silencedetect=noise=-45dB:d=1.5", true);
-        if (out == null) {
-            return OptionalDouble.empty();
-        }
-
-        // A silence_start without a following silence_end reaches the end.
-        double last = -1;
-        boolean closed = true;
-        for (String line : out.split("\\R")) {
-            Matcher m = SILENCE_START.matcher(line);
-            if (m.find()) {
-                last = Double.parseDouble(m.group(1));
-                closed = false;
-            } else if (line.contains("silence_end")) {
-                closed = true;
-            }
-        }
-
-        if (closed || last < 0 || duration - last < MIN_OUTRO) {
-            return OptionalDouble.empty();
-        }
-        return OptionalDouble.of(last);
-    }
-
     /** Black frame that runs through to the end. */
     private static OptionalDouble trailingBlack(Path media, double from, double duration) {
-        String out = analyse(media, from, "blackdetect=d=1.0:pix_th=0.10", false);
+        String out = analyse(media, from, "blackdetect=d=1.0:pix_th=0.10");
         if (out == null) {
             return OptionalDouble.empty();
         }
@@ -112,15 +73,15 @@ final class OutroDetect {
         return OptionalDouble.of(start);
     }
 
-    private static String analyse(Path media, double from, String filter, boolean audio) {
+    private static String analyse(Path media, double from, String filter) {
         try {
             return Proc.captureCombined(List.of(
                     "ffmpeg", "-hide_banner", "-nostats",
                     "-ss", fmt(from),
                     "-copyts",
                     "-i", media.toString(),
-                    audio ? "-af" : "-vf", filter,
-                    audio ? "-vn" : "-an",
+                    "-vf", filter,
+                    "-an",
                     "-f", "null", "-"));
         } catch (IOException | InterruptedException e) {
             return null;
