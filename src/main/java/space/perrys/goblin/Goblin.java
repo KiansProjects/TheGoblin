@@ -25,7 +25,8 @@ public final class Goblin {
               goblin audio <url> [options]            store the audio track as music
               goblin concat <url> <title>             join a playlist into one file
               goblin concat <url> <title> --movie     the same, stored as a movie
-              goblin tidy <folder> --type <kind>      sort loose files into place
+              goblin tidy input                       sort an inbox into the library
+              goblin tidy <folder> --type <kind>      sort one kind of loose files
               goblin playlist <url> <name>            print ready-made shows lines
               goblin playlist <url> <name> --episodes one video per episode
                                                       --from/--to limit the range,
@@ -56,10 +57,14 @@ public final class Goblin {
               -v, --verbose           show the yt-dlp command and its messages
 
             Options for 'tidy':
-                  --type <kind>       comics, music, shows or movies (required)
-              -o, --out <path>        where the tidy tree goes (default: the folder itself)
+                  --type <kind>       comics, music, shows or movies
+                                      (omit it to treat the folder as an inbox)
+              -o, --out <path>        where the tidy tree goes (default: the kind's
+                                      place in the library; -o . sorts in place)
                   --apply             actually move; without it nothing is touched
                   --no-database       skip TMDb, sort from names alone
+                  --upload            push the sorted files on over SFTP
+                  --keep-local        keep the local copy after the upload
                   --log <file>        where the list of moves goes
 
             Environment:
@@ -1268,7 +1273,8 @@ public final class Goblin {
      * @param keepLocal true leaves the local copy in place
      * @return true when the upload happened
      */
-    private static boolean uploadIfConfigured(Sftp sftp, Path root, Path file, boolean keepLocal) {
+    /** Package-private: Tidy uploads what it has just sorted. */
+    static boolean uploadIfConfigured(Sftp sftp, Path root, Path file, boolean keepLocal) {
         if (sftp == null) {
             return false;
         }
@@ -1299,7 +1305,8 @@ public final class Goblin {
      * path starting with "..", which means nothing below sftp.base. There it
      * falls back to being relative to --out, which is what this did before.
      */
-    private static String remotePath(Path root, Path file) {
+    /** Package-private: Tidy uploads through the same path rule. */
+    static String remotePath(Path root, Path file) {
         Path target = file.toAbsolutePath().normalize();
 
         Path relative = between(Path.of("").toAbsolutePath().normalize(), target);

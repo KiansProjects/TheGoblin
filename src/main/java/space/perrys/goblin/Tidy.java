@@ -38,6 +38,9 @@ import java.util.Set;
  */
 final class Tidy {
 
+    /** The kinds, in the order an inbox run works through them. */
+    private static final List<String> TYPES = List.of("comics", "music", "shows", "movies");
+
     private static final Set<String> COMIC_EXT = Set.of("cbz", "cbr", "cb7", "pdf", "epub");
     private static final Set<String> MUSIC_EXT =
             Set.of("mp3", "m4a", "flac", "opus", "ogg", "wav", "aac", "wma");
@@ -80,6 +83,8 @@ final class Tidy {
         String type = null;
         boolean apply = false;
         boolean useDatabase = true;
+        boolean upload = false;
+        boolean keepLocal = false;
         Path logFile = null;
 
         for (int i = 2; i < args.length; i++) {
@@ -88,6 +93,8 @@ final class Tidy {
                 case "-o", "--out" -> out = Path.of(args[++i]);
                 case "--apply" -> apply = true;
                 case "--no-database" -> useDatabase = false;
+                case "--upload" -> upload = true;
+                case "--keep-local" -> keepLocal = true;
                 case "--log" -> logFile = Path.of(args[++i]);
                 default -> {
                     System.err.println("Unknown option: " + args[i]);
@@ -96,20 +103,105 @@ final class Tidy {
             }
         }
 
-        if (type == null) {
-            System.err.println("--type is required: comics, music, shows or movies.");
-            return 2;
-        }
-        if (!List.of("comics", "music", "shows", "movies").contains(type)) {
+        if (type != null && !TYPES.contains(type)) {
             System.err.println("Unknown type: " + type);
             return 2;
         }
+
+        Sftp sftp = upload ? Sftp.fromConfig(Goblin.CONFIG) : null;
+        if (upload && sftp == null) {
+            System.err.println("--upload was given, but " + Goblin.CONFIG
+                    + " is missing or incomplete.");
+            return 2;
+        }
+        if (sftp != null) {
+            System.out.println("Uploading to " + sftp.describe());
+            System.out.println();
+        }
+
+        // Without --type the folder is an inbox: one subfolder per kind, each
+        // going to its own place in the library.
+        if (type == null) {
+            return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal);
+        }
+
         if (!Files.isDirectory(folder)) {
             System.err.println("Not a directory: " + folder);
             return 2;
         }
 
-        Path target = (out != null) ? out : folder;
+        Path target = (out != null) ? out : Path.of(destination(type));
+        return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal);
+    }
+
+    /**
+     * Where each kind belongs below the working directory, and with --upload
+     * below sftp.base as well - the remote path mirrors the local one.
+     *
+     * Overridable per kind in goblin.properties, because not every library
+     * spells these the same. The defaults match a Jellyfin tree of
+     * books/movies/music/shows.
+     */
+    private static String destination(String type) {
+        String configured = Limits.property("tidy." + type);
+        if (configured != null) {
+            return configured;
+        }
+        return switch (type) {
+            case "comics" -> "books/Comics";
+            case "music" -> "music";
+            case "shows" -> "shows";
+            default -> "movies";
+        };
+    }
+
+    /**
+     * Tidies an inbox: every subfolder named after a kind is sorted into that
+     * kind's place. Drop a heap of comics into input/comics and run one
+     * command.
+     */
+    private static int inbox(Path folder, boolean apply, boolean useDatabase, Path logFile,
+                             Sftp sftp, boolean keepLocal) throws Exception {
+
+        if (!Files.isDirectory(folder)) {
+            for (String type : TYPES) {
+                Files.createDirectories(folder.resolve(type));
+            }
+            System.out.println("Created " + folder + " with a folder for each kind:");
+            for (String type : TYPES) {
+                System.out.printf("  %-8s -> %s%n", type, destination(type));
+            }
+            System.out.println();
+            System.out.println("Put your unsorted files in whichever fits and run this again.");
+            return 0;
+        }
+
+        int worst = 0;
+        boolean any = false;
+
+        for (String type : TYPES) {
+            Path sub = folder.resolve(type);
+            if (!Files.isDirectory(sub)) {
+                continue;
+            }
+            any = true;
+            System.out.println("================ " + type + " ================");
+            worst = Math.max(worst, one(sub, Path.of(destination(type)), type,
+                    apply, useDatabase, logFile, sftp, keepLocal));
+            System.out.println();
+        }
+
+        if (!any) {
+            System.out.println(folder + " has no subfolder named comics, music, shows or movies.");
+            System.out.println("Create one of those and put the files in it, or name the kind "
+                    + "with --type.");
+        }
+        return worst;
+    }
+
+    private static int one(Path folder, Path target, String type, boolean apply,
+                           boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal)
+            throws Exception {
         Set<String> wanted = switch (type) {
             case "comics" -> COMIC_EXT;
             case "music" -> MUSIC_EXT;
@@ -178,7 +270,8 @@ final class Tidy {
         }
 
         return apply(plans, folder, target,
-                (logFile != null) ? logFile : target.resolve("goblin-tidy.log"));
+                (logFile != null) ? logFile : Path.of("goblin-tidy.log"),
+                sftp, keepLocal);
     }
 
     // ------------------------------------------------------------------
@@ -413,24 +506,46 @@ final class Tidy {
         }
     }
 
-    private static int apply(List<Plan> plans, Path folder, Path target, Path logFile) {
+    private static int apply(List<Plan> plans, Path folder, Path target, Path logFile,
+                             Sftp sftp, boolean keepLocal) {
         System.out.println();
         int moved = 0;
         int failed = 0;
+        int uploaded = 0;
+        int uploadFails = 0;
 
         for (Plan plan : plans) {
             try {
                 Files.createDirectories(plan.to().getParent());
                 if (Files.exists(plan.to())) {
                     // Between the plan and here, or a file the scan never saw.
-                    System.out.println("  exists, skipped: " + target.relativize(plan.to()));
+                    System.out.println("  exists, skipped: " + plan.to());
                     continue;
                 }
                 Files.move(plan.from(), plan.to());
                 log(logFile, plan.from(), plan.to());
                 moved++;
 
-                moved += subtitles(plan, logFile);
+                List<Path> also = subtitles(plan, logFile);
+                moved += also.size();
+
+                if (sftp != null) {
+                    boolean ok = Goblin.uploadIfConfigured(sftp, target, plan.to(), keepLocal);
+                    for (Path subtitle : also) {
+                        ok &= Goblin.uploadIfConfigured(sftp, target, subtitle, keepLocal);
+                    }
+
+                    uploaded += ok ? 1 + also.size() : 0;
+                    uploadFails = ok ? 0 : uploadFails + 1;
+
+                    // The same guard the downloads have: a failed upload keeps
+                    // its file, so carrying on would quietly fill the disk.
+                    if (Limits.uploadFailures() > 0 && uploadFails >= Limits.uploadFailures()) {
+                        System.out.printf("%nStopping: %d uploads in a row failed. "
+                                + "The rest stays sorted but local.%n", uploadFails);
+                        break;
+                    }
+                }
             } catch (IOException e) {
                 System.out.println("  failed: " + folder.relativize(plan.from())
                         + " (" + e.getMessage() + ")");
@@ -440,8 +555,15 @@ final class Tidy {
 
         System.out.printf("%nMoved %d files.%s%n", moved,
                 failed > 0 ? " " + failed + " failed." : "");
+        if (sftp != null) {
+            System.out.printf("Uploaded %d.%s%n", uploaded,
+                    keepLocal ? " The local copies stay." : " The local copies are gone.");
+        }
 
         int removed = removeEmpty(folder);
+        if (sftp != null && !keepLocal && !target.equals(folder)) {
+            removed += removeEmpty(target);
+        }
         if (removed > 0) {
             System.out.println("Removed " + removed + " empty directories.");
         }
@@ -451,16 +573,21 @@ final class Tidy {
         return failed > 0 ? 1 : 0;
     }
 
-    /** Subtitles named after the video follow it, under the video's new name. */
-    private static int subtitles(Plan plan, Path logFile) {
+    /**
+     * Subtitles named after the video follow it, under the video's new name.
+     *
+     * @return where they landed, so an upload can take them along
+     */
+    private static List<Path> subtitles(Plan plan, Path logFile) {
+        List<Path> moved = new ArrayList<>();
+
         Path parent = plan.from().getParent();
         if (parent == null) {
-            return 0;
+            return moved;
         }
 
         String stem = Guess.stripExtension(plan.from().getFileName().toString());
         String newStem = Guess.stripExtension(plan.to().getFileName().toString());
-        int moved = 0;
 
         try (var entries = Files.list(parent)) {
             for (Path sibling : entries.toList()) {
@@ -479,7 +606,7 @@ final class Tidy {
                 }
                 Files.move(sibling, to);
                 log(logFile, sibling, to);
-                moved++;
+                moved.add(to);
             }
         } catch (IOException e) {
             // Losing a subtitle is not worth failing the video's move over.

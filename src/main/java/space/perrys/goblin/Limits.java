@@ -33,6 +33,12 @@ final class Limits {
     /** Consecutive failed uploads after which a run gives up. 0 disables it. */
     private static int uploadFailures = 3;
 
+    /**
+     * The whole file, kept so that settings which are not brakes can be read
+     * from it too without every command opening it again.
+     */
+    private static Properties file = new Properties();
+
     private Limits() {
     }
 
@@ -49,9 +55,15 @@ final class Limits {
             return;
         }
 
+        file = p;
         rate = value(p, "limit.rate");
         pause = number(value(p, "limit.pause"), 0);
         uploadFailures = (int) number(value(p, "limit.upload_failures"), 3);
+    }
+
+    /** Any key of goblin.properties, or null when unset. */
+    static String property(String key) {
+        return value(file, key);
     }
 
     static String rate() {

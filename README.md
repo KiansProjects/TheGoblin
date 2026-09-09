@@ -466,9 +466,56 @@ The other commands leave a tidy library because they know what they downloaded.
 thirty-four comics dropped in a heap, a season of episodes with release-group
 names.
 
+### The inbox
+
+The way it is meant to be used: one folder you throw things into, one command
+that puts them away.
+
+```
+tidy input
+```
+
+The first run creates `input/` with a subfolder per kind and stops. Drop your
+unsorted files into whichever fits, run it again, and each subfolder is sorted
+into its own place in the library:
+
+| Inbox | Lands in |
+| --- | --- |
+| `input/comics` | `books/Comics/` |
+| `input/music` | `music/` |
+| `input/shows` | `shows/` |
+| `input/movies` | `movies/` |
+
+With `--upload` the sorted files go straight on to the media server over SFTP
+and the local copy is removed, exactly as the download commands do it — the
+remote path mirrors the local one below `sftp.base`:
+
+```
+tidy input --apply --upload
+```
+
+The drop folders themselves are never deleted, so the inbox is there for the
+next heap.
+
+The destinations are overridable in `goblin.properties` when your library
+spells them differently:
+
+```
+tidy.comics = books/Comics
+tidy.music  = music
+tidy.shows  = shows
+tidy.movies = movies
+```
+
+### One folder at a time
+
 ```
 tidy <folder> --type comics|music|shows|movies
 ```
+
+Same thing for a single kind. The target is that kind's destination unless
+`--out` says otherwise — `-o .` sorts in place. Every run prints the target
+before it does anything, so check that line.
 
 **Nothing moves without `--apply`.** The plain run prints what it would do and
 stops. Read it before you let it loose.
@@ -530,7 +577,12 @@ Every move is appended to `goblin-tidy.log` in the target folder as
 tac goblin-tidy.log | while IFS=$'\t' read -r from to; do mkdir -p "$(dirname "$from")"; mv "$to" "$from"; done
 ```
 
-`--log <file>` puts it somewhere else.
+`--log <file>` puts it somewhere else. An inbox run appends all four kinds to
+the same log, so one reversal undoes the whole run.
+
+With `--upload` the log still records where each file went locally, but the
+local copy is gone by then — the way back there is the media server. Add
+`--keep-local` if you want both.
 
 ### Pointing it at a library on the same machine
 
