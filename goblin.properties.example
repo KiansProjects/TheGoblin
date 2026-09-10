@@ -48,6 +48,7 @@ sftp.base = /srv/media
 # --upload below sftp.base as well, because the remote path mirrors the
 # local one. These are the defaults; set them if your library differs.
 # tidy.comics = books/Comics
+# tidy.books  = books/Books
 # tidy.music  = music
 # tidy.shows  = shows
 # tidy.movies = movies

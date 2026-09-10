@@ -39,9 +39,18 @@ import java.util.Set;
 final class Tidy {
 
     /** The kinds, in the order an inbox run works through them. */
-    private static final List<String> TYPES = List.of("comics", "music", "shows", "movies");
+    private static final List<String> TYPES =
+            List.of("comics", "books", "music", "shows", "movies");
 
-    private static final Set<String> COMIC_EXT = Set.of("cbz", "cbr", "cb7", "pdf", "epub");
+    private static final Set<String> COMIC_EXT = Set.of("cbz", "cbr", "cb7");
+
+    /**
+     * Deliberately without cbz and cbr. A .pdf used to count as a comic, which
+     * meant a textbook was run through the issue-number guesser and filed
+     * under a series named after its whole download-site file name.
+     */
+    private static final Set<String> BOOK_EXT =
+            Set.of("epub", "pdf", "mobi", "azw3", "djvu", "fb2");
     private static final Set<String> MUSIC_EXT =
             Set.of("mp3", "m4a", "flac", "opus", "ogg", "wav", "aac", "wma");
     private static final Set<String> VIDEO_EXT =
@@ -89,6 +98,7 @@ final class Tidy {
         boolean convert = false;
         boolean remote = false;
         boolean withTitles = false;
+        boolean flat = false;
         Path logFile = null;
 
         for (int i = 2; i < args.length; i++) {
@@ -102,6 +112,7 @@ final class Tidy {
                 case "--convert" -> convert = true;
                 case "--remote" -> remote = true;
                 case "--titles" -> withTitles = true;
+                case "--flat" -> flat = true;
                 case "--log" -> logFile = Path.of(args[++i]);
                 default -> {
                     System.err.println("Unknown option: " + args[i]);
@@ -131,22 +142,23 @@ final class Tidy {
         // The files are on another machine, so nothing below this applies -
         // there is no local directory to walk and no local move to make.
         if (remote) {
-            if (!"comics".equals(type)) {
-                System.err.println("--remote handles comics only. Music needs its tags read, "
-                        + "which means whole files, and video is identified from its name "
-                        + "anyway - run those locally.");
+            if (!"comics".equals(type) && !"books".equals(type)) {
+                System.err.println("--remote handles comics and books only. Music needs its "
+                        + "tags read, which means whole files, and video is identified from "
+                        + "its name anyway - run those locally.");
                 return 2;
             }
             String root = stripSlashes(args[1]);
             String destination = (out != null) ? stripSlashes(out.toString()) : root;
-            return RemoteTidy.run(sftp, root, destination, apply, useDatabase, withTitles);
+            return RemoteTidy.run(sftp, root, destination, type, apply, useDatabase,
+                    withTitles, flat);
         }
 
         // Without --type the folder is an inbox: one subfolder per kind, each
         // going to its own place in the library.
         if (type == null) {
             return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert,
-                    withTitles);
+                    withTitles, flat);
         }
 
         if (!Files.isDirectory(folder)) {
@@ -156,7 +168,7 @@ final class Tidy {
 
         Path target = (out != null) ? out : Path.of(destination(type));
         return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
-                convert, withTitles);
+                convert, withTitles, flat);
     }
 
     /**
@@ -174,6 +186,7 @@ final class Tidy {
         }
         return switch (type) {
             case "comics" -> "books/Comics";
+            case "books" -> "books/Books";
             case "music" -> "music";
             case "shows" -> "shows";
             default -> "movies";
@@ -186,7 +199,8 @@ final class Tidy {
      * command.
      */
     private static int inbox(Path folder, boolean apply, boolean useDatabase, Path logFile,
-                             Sftp sftp, boolean keepLocal, boolean convert, boolean withTitles) throws Exception {
+                             Sftp sftp, boolean keepLocal, boolean convert, boolean withTitles, boolean flat)
+            throws Exception {
 
         if (!Files.isDirectory(folder)) {
             for (String type : TYPES) {
@@ -212,7 +226,7 @@ final class Tidy {
             any = true;
             System.out.println("================ " + type + " ================");
             worst = Math.max(worst, one(sub, Path.of(destination(type)), type,
-                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles));
+                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles, flat));
             System.out.println();
         }
 
@@ -226,10 +240,11 @@ final class Tidy {
 
     private static int one(Path folder, Path target, String type, boolean apply,
                            boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal,
-                           boolean convert, boolean withTitles)
+                           boolean convert, boolean withTitles, boolean flat)
             throws Exception {
         Set<String> wanted = switch (type) {
             case "comics" -> COMIC_EXT;
+            case "books" -> BOOK_EXT;
             case "music" -> MUSIC_EXT;
             default -> VIDEO_EXT;
         };
@@ -262,7 +277,10 @@ final class Tidy {
         Map<Path, Path> claimed = new LinkedHashMap<>();
 
         ComicVine localComicVine = null;
+        OpenLibrary localLibrary = null;
         Map<Path, Comics.Id> comicIds = new LinkedHashMap<>();
+        Map<Path, Books.Id> bookIds = new LinkedHashMap<>();
+        Map<String, Books.Id> bookByKey = Map.of();
         Map<String, Comics.Series> comicSeries = Map.of();
         Map<String, Map<String, String>> comicTitles = new HashMap<>();
 
@@ -288,10 +306,28 @@ final class Tidy {
             localComicVine = comicVine;
         }
 
+        if ("books".equals(type)) {
+            for (Path file : files) {
+                Books.Id id = bookId(file);
+                if (id != null) {
+                    bookIds.put(file, id);
+                }
+            }
+            localLibrary = useDatabase ? new OpenLibrary() : null;
+            if (localLibrary == null) {
+                System.out.println("--no-database: working from the files alone.");
+                System.out.println();
+            }
+            bookByKey = Books.resolve(bookIds.values(), localLibrary);
+        }
+
         for (Path file : files) {
-            Plan plan = "comics".equals(type)
-                    ? comicPlan(file, target, comicIds.get(file), comicSeries, comicTitles, withTitles)
-                    : plan(context, file);
+            Plan plan = switch (type) {
+                case "comics" -> comicPlan(file, target, comicIds.get(file), comicSeries,
+                        comicTitles, withTitles);
+                case "books" -> bookPlan(file, target, bookIds.get(file), bookByKey, flat);
+                default -> plan(context, file);
+            };
             if (plan == null) {
                 unidentified.add(folder.relativize(file).toString());
                 continue;
@@ -331,6 +367,9 @@ final class Tidy {
         // After the moves, so the folders the artwork belongs in exist.
         if ("comics".equals(type)) {
             artwork(target, comicSeries, localComicVine, sftp);
+        }
+        if ("books".equals(type)) {
+            bookArtwork(target, bookIds.values(), bookByKey, localLibrary, flat, sftp);
         }
         return status;
     }
@@ -439,6 +478,75 @@ final class Tidy {
             }
         }
         return Comics.identify(file.getFileName().toString(), null);
+    }
+
+    /** Everything a book says about itself, before the database is asked. */
+    private static Books.Id bookId(Path file) {
+        Epub.Info metadata = "epub".equals(extension(file)) ? Epub.read(file) : null;
+        return Books.identify(file.getFileName().toString(), metadata);
+    }
+
+    /**
+     * Where one book belongs.
+     *
+     * The title, author and year come from {@link Books}, which has already
+     * reconciled the file with the database. Two files of the same book - the
+     * .epub and the .pdf - resolve to the same key and therefore land in the
+     * same folder beside each other, which is what a reader wants.
+     */
+    private static Plan bookPlan(Path file, Path target, Books.Id id,
+                                 Map<String, Books.Id> byKey, boolean flat) {
+        if (id == null) {
+            return null;
+        }
+        Books.Id resolved = byKey.getOrDefault(Books.key(id), id);
+
+        String folder = Books.folder(resolved, flat);
+        Path directory = folder.isEmpty() ? target : target.resolve(folder);
+        return new Plan(file, directory.resolve(Books.fileName(resolved, flat, extension(file))),
+                resolved.how());
+    }
+
+    /** A cover beside each book, from Open Library, keyed by its ISBN. */
+    private static void bookArtwork(Path target, java.util.Collection<Books.Id> ids,
+                                    Map<String, Books.Id> byKey, OpenLibrary library,
+                                    boolean flat, Sftp sftp) {
+        if (library == null || ids.isEmpty()) {
+            return;
+        }
+
+        int written = 0;
+        Set<String> done = new java.util.LinkedHashSet<>();
+
+        for (Books.Id raw : ids) {
+            String key = Books.key(raw);
+            if (!done.add(key)) {
+                continue;
+            }
+            Books.Id id = byKey.getOrDefault(key, raw);
+            if (id.isbn() == null) {
+                continue;
+            }
+
+            String folder = Books.folder(id, flat);
+            Path directory = folder.isEmpty() ? target : target.resolve(folder);
+            Path cover = directory.resolve(Books.coverName(flat, id));
+
+            try {
+                Files.createDirectories(directory);
+                if (library.saveCover(id.isbn(), cover)) {
+                    written++;
+                    if (sftp != null) {
+                        uploadIfPresent(sftp, target, cover);
+                    }
+                }
+            } catch (IOException e) {
+                System.out.println("  Cover for " + id.title() + " skipped - " + e.getMessage());
+            }
+        }
+        if (written > 0) {
+            System.out.printf("Wrote %d covers.%n", written);
+        }
     }
 
     /**

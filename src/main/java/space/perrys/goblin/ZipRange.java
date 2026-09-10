@@ -54,6 +54,17 @@ final class ZipRange {
      *         is not a zip, or cannot be read
      */
     static byte[] entry(Reader reader, long fileSize, String name) throws IOException {
+        return entry(reader, fileSize, entryName -> matches(entryName, name));
+    }
+
+    /**
+     * The same, for an entry whose exact name is not known in advance - an
+     * EPUB keeps its metadata in a .opf whose name is up to whoever packed it.
+     *
+     * @param wanted decides on the entry's full path inside the archive
+     */
+    static byte[] entry(Reader reader, long fileSize, java.util.function.Predicate<String> wanted)
+            throws IOException {
         if (fileSize <= 0) {
             return null;
         }
@@ -85,7 +96,7 @@ final class ZipRange {
             return null;
         }
 
-        long localOffset = findEntry(central, name);
+        long localOffset = findEntry(central, wanted);
         if (localOffset < 0) {
             return null;
         }
@@ -129,7 +140,7 @@ final class ZipRange {
     /**
      * @return the local header offset of the wanted entry, or -1
      */
-    private static long findEntry(byte[] central, String name) {
+    private static long findEntry(byte[] central, java.util.function.Predicate<String> wanted) {
         int at = 0;
         while (at + 46 <= central.length && u32(central, at) == CENTRAL_SIGNATURE) {
             int nameLength = u16(central, at + 28);
@@ -142,7 +153,7 @@ final class ZipRange {
             String entryName = new String(central, at + 46, nameLength,
                     java.nio.charset.StandardCharsets.UTF_8);
 
-            if (matches(entryName, name)) {
+            if (wanted.test(entryName)) {
                 long offset = u32(central, at + 42);
                 return (offset == OVERFLOW_32) ? -1 : offset;
             }

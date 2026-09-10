@@ -29,12 +29,14 @@ import java.util.Set;
  *   - {@link Comics} decides the names, and knows nothing about where the
  *     files are, so the answers match what a local run would give.
  *
- * Only comics. Music needs its tags read, which means whole files, and video
- * is identified from its name alone and belongs to the local run.
+ * Comics and books. Music needs its tags read, which means whole files, and
+ * video is identified from its name alone and belongs to the local run.
  */
 final class RemoteTidy {
 
-    private static final Set<String> COMIC_EXT = Set.of("cbz", "cbr", "cb7", "pdf", "epub");
+    private static final Set<String> COMIC_EXT = Set.of("cbz", "cbr", "cb7");
+    private static final Set<String> BOOK_EXT =
+            Set.of("epub", "pdf", "mobi", "azw3", "djvu", "fb2");
 
     /** Guards against a symlink loop turning the walk into a hang. */
     private static final int MAX_DEPTH = 8;
@@ -53,15 +55,23 @@ final class RemoteTidy {
      * @param target    where the sorted folders go, below sftp.base
      * @param withTitles whether issue titles from the database join the names
      */
-    static int run(Sftp sftp, String root, String target, boolean apply,
-                   boolean useDatabase, boolean withTitles)
+    static int run(Sftp sftp, String root, String target, String type, boolean apply,
+                   boolean useDatabase, boolean withTitles, boolean flat)
+            throws IOException, InterruptedException {
+        return "books".equals(type)
+                ? books(sftp, root, target, apply, useDatabase, flat)
+                : comics(sftp, root, target, apply, useDatabase, withTitles);
+    }
+
+    private static int comics(Sftp sftp, String root, String target, boolean apply,
+                              boolean useDatabase, boolean withTitles)
             throws IOException, InterruptedException {
 
         System.out.println("Remote: " + sftp.describe());
         System.out.println("Sorting " + root + " into " + target);
         System.out.println();
 
-        List<RemoteFile> files = walk(sftp, root);
+        List<RemoteFile> files = walk(sftp, root, COMIC_EXT);
         if (files.isEmpty()) {
             System.out.println("No comics found under " + root + ".");
             return 0;
@@ -154,8 +164,145 @@ final class RemoteTidy {
         return carryOut(sftp, moves, series, target, comicVine, root);
     }
 
+    /**
+     * The same for books.
+     *
+     * Shorter than the comics path because a book stands on its own: there is
+     * no series to reconcile a shelf against, so each file is decided by
+     * itself and by whatever the database says about its ISBN.
+     */
+    private static int books(Sftp sftp, String root, String target, boolean apply,
+                             boolean useDatabase, boolean flat)
+            throws IOException, InterruptedException {
+
+        System.out.println("Remote: " + sftp.describe());
+        System.out.println("Sorting " + root + " into " + target);
+        System.out.println();
+
+        List<RemoteFile> files = walk(sftp, root, BOOK_EXT);
+        if (files.isEmpty()) {
+            System.out.println("No books found under " + root + ".");
+            return 0;
+        }
+        System.out.printf("%d files under %s%n%n", files.size(), root);
+
+        Map<String, Books.Id> ids = new LinkedHashMap<>();
+        List<String> unidentified = new ArrayList<>();
+        int fromMetadata = 0;
+
+        for (RemoteFile file : files) {
+            Epub.Info metadata = "epub".equals(extension(file.path())) && file.size() > 0
+                    ? Epub.read((from, length) -> sftp.range(file.path(), from, length), file.size())
+                    : null;
+
+            Books.Id id = Books.identify(name(file.path()), metadata);
+            if (id == null) {
+                unidentified.add(file.path());
+                continue;
+            }
+            if (metadata != null) {
+                fromMetadata++;
+            }
+            ids.put(file.path(), id);
+        }
+
+        System.out.printf("Identified %d of %d - %d from EPUB metadata, %d from the file name.%n",
+                ids.size(), files.size(), fromMetadata, ids.size() - fromMetadata);
+
+        if (ids.isEmpty()) {
+            System.out.println("Nothing identifiable. Nothing to do.");
+            return 1;
+        }
+
+        OpenLibrary library = useDatabase ? new OpenLibrary() : null;
+        if (library == null) {
+            System.out.println("--no-database: working from the files alone.");
+        }
+        System.out.println();
+        Map<String, Books.Id> byKey = Books.resolve(ids.values(), library);
+
+        List<Move> moves = new ArrayList<>();
+        List<String> inPlace = new ArrayList<>();
+        List<String> conflicts = new ArrayList<>();
+        Map<String, String> claimed = new LinkedHashMap<>();
+
+        for (Map.Entry<String, Books.Id> e : ids.entrySet()) {
+            Books.Id id = byKey.getOrDefault(Books.key(e.getValue()), e.getValue());
+            String folder = Books.folder(id, flat);
+            String to = target + (folder.isEmpty() ? "" : "/" + folder)
+                    + "/" + Books.fileName(id, flat, extension(e.getKey()));
+
+            if (to.equals(e.getKey())) {
+                inPlace.add(e.getKey());
+                continue;
+            }
+            if (claimed.containsKey(to)) {
+                conflicts.add(e.getKey() + "  ->  " + to
+                        + "  (already claimed by " + claimed.get(to) + ")");
+                continue;
+            }
+            claimed.put(to, e.getKey());
+            moves.add(new Move(e.getKey(), to, id.how()));
+        }
+
+        report(moves, inPlace, unidentified, conflicts);
+
+        if (!apply) {
+            System.out.println();
+            System.out.println("Dry run. Nothing was renamed - add --apply to carry this out.");
+            return 0;
+        }
+
+        int status = rename(sftp, moves, root);
+        bookCovers(sftp, ids.values(), byKey, target, library, flat);
+        return status;
+    }
+
+    /** A cover beside each book, from Open Library, keyed by its ISBN. */
+    private static void bookCovers(Sftp sftp, java.util.Collection<Books.Id> ids,
+                                   Map<String, Books.Id> byKey, String target,
+                                   OpenLibrary library, boolean flat) {
+        if (library == null) {
+            return;
+        }
+
+        int written = 0;
+        Set<String> done = new LinkedHashSet<>();
+
+        for (Books.Id raw : ids) {
+            String key = Books.key(raw);
+            if (!done.add(key)) {
+                continue;
+            }
+            Books.Id id = byKey.getOrDefault(key, raw);
+            if (id.isbn() == null) {
+                continue;
+            }
+
+            try {
+                Path temp = Files.createTempFile("goblin-cover", ".jpg");
+                try {
+                    Files.deleteIfExists(temp);
+                    if (library.saveCover(id.isbn(), temp)) {
+                        String folder = Books.folder(id, flat);
+                        sftp.upload(temp, target + (folder.isEmpty() ? "" : "/" + folder)
+                                + "/" + Books.coverName(flat, id));
+                        written++;
+                    }
+                } finally {
+                    Files.deleteIfExists(temp);
+                }
+            } catch (IOException | InterruptedException e) {
+                System.out.println("  Cover for " + id.title() + " skipped - " + e.getMessage());
+            }
+        }
+        if (written > 0) {
+            System.out.printf("Wrote %d covers.%n", written);
+        }
+    }
+
     /** Lists the tree below one remote folder. */
-    private static List<RemoteFile> walk(Sftp sftp, String root)
+    private static List<RemoteFile> walk(Sftp sftp, String root, Set<String> wanted)
             throws IOException, InterruptedException {
 
         List<RemoteFile> out = new ArrayList<>();
@@ -181,7 +328,7 @@ final class RemoteTidy {
                 String path = dir + "/" + entry.name();
                 if (entry.directory()) {
                     queue.add(path);
-                } else if (COMIC_EXT.contains(extension(path))) {
+                } else if (wanted.contains(extension(path))) {
                     out.add(new RemoteFile(path, entry.size()));
                 }
             }
@@ -216,6 +363,24 @@ final class RemoteTidy {
                                 String target, ComicVine comicVine, String root)
             throws IOException, InterruptedException {
 
+        int status = rename(sftp, moves, root);
+        int covers = artwork(sftp, series, target, comicVine);
+        if (covers > 0) {
+            System.out.printf("Wrote artwork for %d series.%n", covers);
+        }
+        return status;
+    }
+
+    /**
+     * Carries out the renames, logs them, and clears the directories they
+     * emptied.
+     *
+     * Shared by both kinds, because a rename is a rename - only deciding the
+     * new name differs between a comic and a book.
+     */
+    private static int rename(Sftp sftp, List<Move> moves, String root)
+            throws IOException, InterruptedException {
+
         int done = 0;
         int failed = 0;
         Set<String> emptied = new LinkedHashSet<>();
@@ -245,8 +410,6 @@ final class RemoteTidy {
                     java.nio.file.StandardOpenOption.APPEND);
         }
 
-        int covers = artwork(sftp, series, target, comicVine);
-
         // Only after the moves, and only ones that should now be empty. An
         // rmdir on a directory that still holds something fails, which is
         // exactly the safety we want - so a failure here is not an error.
@@ -264,9 +427,6 @@ final class RemoteTidy {
         System.out.printf("Renamed %d files.%n", done);
         if (failed > 0) {
             System.out.printf("%d failed.%n", failed);
-        }
-        if (covers > 0) {
-            System.out.printf("Wrote artwork for %d series.%n", covers);
         }
         if (removed > 0) {
             System.out.printf("Cleared %d directories that emptied out.%n", removed);

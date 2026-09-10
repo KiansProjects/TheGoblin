@@ -563,6 +563,7 @@ into its own place in the library:
 | Inbox | Lands in |
 | --- | --- |
 | `input/comics` | `books/Comics/` |
+| `input/books` | `books/Books/` |
 | `input/music` | `music/` |
 | `input/shows` | `shows/` |
 | `input/movies` | `movies/` |
@@ -583,6 +584,7 @@ spells them differently:
 
 ```
 tidy.comics = books/Comics
+tidy.books  = books/Books
 tidy.music  = music
 tidy.shows  = shows
 tidy.movies = movies
@@ -600,12 +602,13 @@ before it does anything, so check that line.
 
 | Option | Meaning |
 | --- | --- |
-| `-t, --type <kind>` | comics, music, shows or movies |
+| `-t, --type <kind>` | comics, books, music, shows or movies |
 | `-o, --out <path>` | target, defaults to that kind's destination |
 | `--apply` | actually move; without it nothing happens |
-| `--remote` | the files are on the SFTP target, comics only |
+| `--remote` | the files are on the SFTP target, comics and books only |
 | `--convert` | repack `.cbr` as `.cbz` first, comics only |
 | `--titles` | issue titles from ComicVine in the file name, comics only |
+| `--flat` | no folder per book, books only |
 | `--no-database` | no lookup at all |
 | `--upload` | copy the result on to the SFTP target |
 | `--keep-local` | with `--upload`, keep the local copy |
@@ -777,6 +780,61 @@ of three series called "Captain America" by year; that the generated
 `series.json` parses. **Not verified: a single live call.** ComicVine is blocked
 from the environment this was written in, so neither the URLs nor the key
 handling have ever been exercised against the real API.*
+
+## Books
+
+```
+tidy media/books/Books --type books
+tidy media/books/Books --type books --remote --apply
+```
+
+A book is not a comic, and until this existed it was treated as one: `.pdf`
+and `.epub` counted as comic extensions, so a textbook went through the
+issue-number guesser and was filed under a series named after its entire
+download-site file name. They are their own kind now.
+
+The same three sources, in the same order:
+
+1. **What the file says about itself.** An EPUB keeps its metadata in an `.opf`
+   inside the archive — title, author, publisher, date, ISBN. That is a zip
+   entry like a comic's `ComicInfo.xml`, so it is read the same way, including
+   over SFTP without fetching the book.
+2. **What the file name says.** The download sites write
+   `Title -- Authors -- Year -- Publisher -- ISBN -- hash -- Anna's Archive`.
+   The fields after the authors are not read by position, because their order
+   varies — each is examined for what it is, so an ISBN is found wherever it
+   sits.
+3. **What the database says.** Open Library, chosen over the alternatives
+   because it needs **no API key**. An ISBN makes it a lookup rather than a
+   search, and a file name from those sites nearly always carries one.
+
+That last point is what the database is really for here. Those sites strip the
+punctuation out of a title: a colon and a full stop both become an underscore,
+which is why your file says `IT-Berufe_ Schülerband_ Grundstufe 1_ Jahr` and
+there is no way to reverse it — two different characters, one replacement. The
+ISBN survives intact, and the database has the title as it is printed.
+
+```
+Jürgen Gratzke/
+  IT-Berufe: Schülerband (2020)/
+    cover.jpg
+    IT-Berufe: Schülerband.pdf
+```
+
+`--flat` drops the per-book folder and gives `Author/Title (Year).pdf` instead.
+
+Two files of the same book — the `.epub` and the `.pdf` — share an ISBN, so
+they resolve to one entry and land beside each other rather than in two folders
+that differ by a comma.
+
+*Verified: the file-name reading against the real shapes, including a field
+order where publisher and year share one field and an ISBN written with
+hyphens; the `.opf` parsing against a namespace prefix that is not `dc`, CDATA,
+`urn:isbn`, XML entities, a duplicated author and a contributor that must not
+become one; reading a real EPUB both from disk and **through the same byte-range
+reader SFTP uses**; the Open Library parsing against saved responses. **Not
+verified: a single live call.** openlibrary.org is blocked from the environment
+this was written in.*
 
 ## A queue instead of six terminals
 
