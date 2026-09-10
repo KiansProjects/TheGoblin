@@ -53,6 +53,10 @@ public final class Goblin {
               -f, --format <sel>      custom yt-dlp format selector
                   --container <ext>   target container, default mp4
                   --chapters <file>   custom timestamps instead of the video's
+                  --runtimes          no chapters in the video: derive the episode
+                                      boundaries from the season's run times on
+                                      TMDb, then find the real cut with --snap
+                                      (90 s window unless --snap says otherwise)
                   --offset <seconds>  shift every boundary but the first
                   --snap [seconds]    pull boundaries onto the real picture change
                                       (search window, default 5)
@@ -1107,6 +1111,7 @@ public final class Goblin {
         Path chapterFile = null;
         double offset = 0;
         double snapWindow = 0;
+        boolean runtimes = false;
         boolean upload = false;
         boolean keepLocal = false;
 
@@ -1131,6 +1136,7 @@ public final class Goblin {
                 case "--offset" -> offset = Double.parseDouble(args[++i]);
                 case "--upload" -> upload = true;
                 case "--keep-local" -> keepLocal = true;
+                case "--runtimes" -> runtimes = true;
                 case "--snap" -> snapWindow = (i + 1 < args.length && !args[i + 1].startsWith("-"))
                         ? Double.parseDouble(args[++i])
                         : 5.0;
@@ -1148,8 +1154,21 @@ public final class Goblin {
         System.out.println("Fetching metadata ...");
         VideoMeta meta = YtDlp.metadata(url, verbose);
 
+        // Run times are rounded to whole minutes and the compilation adds its
+        // own material, so the few seconds that --snap normally searches would
+        // never reach the real boundary.
+        if (runtimes && snapWindow == 0) {
+            snapWindow = 90;
+            System.out.println("--runtimes: boundaries are estimates, searching "
+                    + "within 90 s. Use --snap <seconds> for a different window.");
+        }
+
         List<Chapter> parts;
-        if (chapterFile != null) {
+        if (runtimes) {
+            // Built further down: the run times come out of the database, and
+            // that has not been asked yet at this point.
+            parts = List.of();
+        } else if (chapterFile != null) {
             parts = ChapterParser.parse(Files.readString(chapterFile), meta.duration());
             if (parts.isEmpty()) {
                 System.err.println("No timestamps could be read from " + chapterFile + ".");
@@ -1160,18 +1179,20 @@ public final class Goblin {
             parts = resolveChapters(meta);
         }
 
-        if (offset != 0) {
+        if (offset != 0 && !runtimes) {
             parts = shift(parts, offset, meta.duration());
             System.out.printf("Offset: %+.1f s from the second section on%n", offset);
         }
 
-        if (parts.isEmpty()) {
+        if (parts.isEmpty() && !runtimes) {
             System.err.println("""
                     No chapters found. The video has neither YouTube chapters nor
                     recognisable timestamps in its description.""");
             return 1;
         }
-        System.out.printf("%d sections in \"%s\"%n", parts.size(), meta.title());
+        if (!runtimes) {
+            System.out.printf("%d sections in \"%s\"%n", parts.size(), meta.title());
+        }
 
         // 2. Look the show up in the database
         Tmdb.Series series = null;
@@ -1193,6 +1214,34 @@ public final class Goblin {
 
         Integer folderYear = (year != null) ? year : (series != null ? series.year() : null);
         Integer folderId = (tmdbId != null) ? tmdbId : (series != null ? series.id() : null);
+
+        // 2b. Boundaries out of the season's run times, for a compilation that
+        // carries no chapters of its own.
+        if (runtimes) {
+            if (tmdb == null || folderId == null) {
+                System.err.println("--runtimes needs TMDb: a key in " + CONFIG
+                        + ", and a show that was actually found. Pin it with --tmdb-id "
+                        + "if the search missed.");
+                return 2;
+            }
+            try {
+                parts = Runtimes.chapters(tmdb.season(folderId, season),
+                        startEpisode, meta.duration());
+            } catch (IOException e) {
+                System.err.println("TMDb unreachable, so there are no run times: "
+                        + e.getMessage());
+                return 1;
+            }
+            if (parts.isEmpty()) {
+                System.err.println("TMDb has no usable run times for season " + season + ".");
+                return 1;
+            }
+            if (offset != 0) {
+                parts = shift(parts, offset, meta.duration());
+                System.out.printf("Offset: %+.1f s from the second section on%n", offset);
+            }
+            System.out.printf("%d sections in \"%s\"%n", parts.size(), meta.title());
+        }
 
         Path seriesDir = out.resolve(Naming.seriesFolder(name, folderYear, folderId));
         Path seasonDir = seriesDir.resolve(Naming.seasonFolder(season));
@@ -1231,7 +1280,9 @@ public final class Goblin {
 
             // 5. Pull the boundaries onto the actual picture change
             if (snapWindow > 0) {
-                parts = snap(source, parts, snapWindow, meta.duration());
+                parts = runtimes
+                        ? snapRolling(source, parts, snapWindow, meta.duration())
+                        : snap(source, parts, snapWindow, meta.duration());
             }
 
             // 6. Cut
@@ -1378,6 +1429,53 @@ public final class Goblin {
             }
         }
         return "Show";
+    }
+
+    /**
+     * Like {@link #snap}, but each boundary is searched for starting from the
+     * previous one that was actually found.
+     *
+     * Run times from TMDb are rounded to whole minutes, and a compilation adds
+     * title cards and transitions the broadcast version never had. Those
+     * errors add up: the theoretical position of the eighth boundary can be
+     * minutes away from the real one, far outside any window worth searching.
+     * Measuring from the last confirmed boundary instead keeps the error at
+     * one episode's worth rather than the sum of all of them.
+     */
+    private static List<Chapter> snapRolling(Path video, List<Chapter> parts,
+                                             double window, double duration) {
+        System.out.printf("Searching for boundaries, each from the last one found "
+                + "(window %.0f s) ...%n", window);
+
+        List<Double> starts = new ArrayList<>();
+        starts.add(parts.get(0).start());
+
+        for (int i = 1; i < parts.size(); i++) {
+            // The previous boundary as found, plus what that episode runs.
+            double wanted = starts.get(i - 1) + parts.get(i - 1).duration();
+            CutDetect.Result found = CutDetect.nearest(video, wanted, window);
+
+            String note = switch (found.source()) {
+                case BLACK -> "black frame";
+                case SCENE -> "scene change";
+                case NONE -> "nothing found, estimate kept";
+            };
+            System.out.printf("  %s -> %s  (%+.2f s, %s)%n",
+                    Chapter.timecode(wanted), Chapter.timecode(found.time()),
+                    found.time() - wanted, note);
+
+            starts.add(found.time());
+        }
+
+        List<Chapter> snapped = new ArrayList<>();
+        for (int i = 0; i < parts.size(); i++) {
+            double end = (i + 1 < starts.size()) ? starts.get(i + 1) : duration;
+            if (end - starts.get(i) < 1.0) {
+                continue;
+            }
+            snapped.add(new Chapter(starts.get(i), end, parts.get(i).title()));
+        }
+        return snapped;
     }
 
     /**

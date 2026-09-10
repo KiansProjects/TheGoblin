@@ -402,6 +402,59 @@ The first section always stays at 0:00.
 
 **Use it together with `--reencode`.** Without it the cut still snaps to the keyframe before, and the exact boundary would be given away again.
 
+## When the video has no chapters at all
+
+`--snap` refines boundaries, it does not find them — it searches a window
+*around a timestamp that already exists*. A feature-length upload of several
+episodes has none, so there is nothing to refine.
+
+What is known in that case is how long each episode of the season runs:
+
+```
+shows <url> "Star Wars Rebels" --runtimes -s 1 -e 1 --reencode
+```
+
+TheGoblin asks TMDb for the season, lays the run times end to end, and takes as
+many episodes as fit into the file. How many that is comes out of the
+arithmetic rather than out of a flag — one episode too many and every boundary
+after it sits past the end of the video.
+
+```
+TMDb run times: 4 episodes (1 to 4), 88:00 together, the file runs 90:00.
+  2:00 unaccounted for - title cards, transitions, and TMDb rounding to whole minutes.
+```
+
+**Those numbers are estimates and stay estimates.** TMDb rounds to whole
+minutes and describes the broadcast version, not somebody's compilation of it.
+So `--runtimes` turns `--snap` on by itself, with a 90 second window instead of
+the usual few seconds; `--snap <seconds>` overrides that.
+
+### Why the errors do not add up
+
+Laid end to end, a rounding error of half a minute per episode would put the
+eighth boundary four minutes off — far outside any window worth searching. So
+with `--runtimes` each boundary is searched for **from the previous one that
+was actually found**, not from the theoretical sum:
+
+```
+Searching for boundaries, each from the last one found (window 90 s) ...
+  22:00 -> 22:41  (+41.00 s, black frame)
+  44:41 -> 45:23  (+42.00 s, black frame)
+```
+
+The second line starts from 22:41, not from 44:00. Each boundary therefore
+carries one episode's worth of error rather than the sum of all of them.
+
+An episode TMDb has no run time for stops the run there and says so, rather
+than shifting everything after it by an unknown amount.
+
+*Verified against fixture seasons: the parsing, the minute-to-second
+conversion, the ordering, how many episodes fit, starting at an episode other
+than the first, the stop at a missing run time, and the arithmetic showing the
+rolling correction beats the naive sum. **The TMDb call itself has never been
+run** — the API is unreachable from where this was written, so what is tested
+is the parsing and the maths around the request, not the request.*
+
 ## Custom timestamps
 
 If the chapters in the video are wrong, you can pass your own list — same format as a YouTube description, one line per section:

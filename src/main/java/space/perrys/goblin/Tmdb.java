@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -97,6 +99,48 @@ final class Tmdb {
     Series byId(int id) throws IOException, InterruptedException {
         String url = API + "/tv/" + id + "?api_key=" + apiKey;
         return toSeries(Json.object(Json.parse(get(url))));
+    }
+
+    /**
+     * One episode as TMDb has it.
+     *
+     * @param number  episode number within the season
+     * @param name    episode title, may be null
+     * @param seconds run time, null when TMDb has none
+     */
+    record Episode(int number, String name, Double seconds) {
+    }
+
+    /**
+     * The episodes of one season, in order.
+     *
+     * Run times on TMDb are whole minutes and describe the broadcast version,
+     * not somebody's compilation of it. They are a starting point for finding
+     * boundaries, never the boundaries themselves - see {@link Runtimes}.
+     *
+     * @return an empty list when TMDb has no such season
+     */
+    List<Episode> season(int seriesId, int season) throws IOException, InterruptedException {
+        return parseSeason(get(API + "/tv/" + seriesId + "/season/" + season
+                + "?api_key=" + apiKey));
+    }
+
+    /** Split out from {@link #season} so the parsing can be exercised offline. */
+    static List<Episode> parseSeason(String json) {
+        List<Episode> episodes = new ArrayList<>();
+        for (Object entry : Json.array(Json.object(Json.parse(json)).get("episodes"))) {
+            Map<String, Object> e = Json.object(entry);
+            int number = (int) Json.num(e, "episode_number", -1);
+            if (number < 0) {
+                continue;
+            }
+            // TMDb writes minutes, and null for anything it does not know.
+            double minutes = Json.num(e, "runtime", 0);
+            episodes.add(new Episode(number, Json.str(e, "name"),
+                    (minutes > 0) ? minutes * 60 : null));
+        }
+        episodes.sort(Comparator.comparingInt(Episode::number));
+        return episodes;
     }
 
     /** Writes poster.jpg and backdrop.jpg into the show folder. Jellyfin reads those directly. */
