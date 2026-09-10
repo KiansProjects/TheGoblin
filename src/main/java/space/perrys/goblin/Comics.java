@@ -166,26 +166,30 @@ final class Comics {
      */
     static String seriesJson(Series series) {
         ComicVine.Volume v = series.volume();
-        StringBuilder json = new StringBuilder();
-        json.append("{\n  \"metadata\": {\n");
-        json.append("    \"type\": \"comicSeries\",\n");
-        json.append("    \"name\": ").append(quote(series.name())).append(",\n");
+        List<String> fields = new ArrayList<>();
+
+        fields.add("    \"type\": \"comicSeries\"");
+        fields.add("    \"name\": " + quote(series.name()));
+
         if (v != null) {
             if (v.publisher() != null) {
-                json.append("    \"publisher\": ").append(quote(v.publisher())).append(",\n");
+                fields.add("    \"publisher\": " + quote(v.publisher()));
             }
             if (v.startYear() != null) {
-                json.append("    \"year_begin\": ").append(v.startYear()).append(",\n");
+                fields.add("    \"year_begin\": " + v.startYear());
             }
             if (v.description() != null) {
-                json.append("    \"description_formatted\": ")
-                        .append(quote(v.description())).append(",\n");
+                fields.add("    \"description_formatted\": " + quote(v.description()));
             }
-            json.append("    \"comicid\": ").append(v.id()).append(",\n");
+            fields.add("    \"comicid\": " + v.id());
         }
-        json.append("    \"status\": \"Ended\"\n");
-        json.append("  }\n}\n");
-        return json.toString();
+
+        // No "status": ComicVine does not tell us whether a series has ended,
+        // and writing "Ended" over every shelf would be asserting something we
+        // never asked about.
+        return "{\n  \"metadata\": {\n"
+                + String.join(",\n", fields)
+                + "\n  }\n}\n";
     }
 
     static String quote(String value) {
