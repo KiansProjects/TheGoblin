@@ -151,6 +151,10 @@ final class Sftp {
                 + (password != null ? " (password)" : "");
     }
 
+    /** One line of a remote directory listing. */
+    record Entry(String name, long size, boolean directory) {
+    }
+
     /**
      * Uploads a file. Missing directories are created by curl.
      *
@@ -166,17 +170,168 @@ final class Sftp {
             }
         }
 
-        String url = "sftp://" + host + ":" + port + base + "/" + encodePath(remoteRelative);
+        run(List.of("--ftp-create-dirs", "--upload-file", localFile.toString(),
+                url(remoteRelative)));
+    }
 
-        // --globoff is load-bearing, not cosmetic: curl treats [] and {} as glob
-        // ranges, and it applies that to --upload-file as well as to the URL.
-        // A folder like "Show (2012) [tmdbid-34391]" makes curl fail with
-        // "bad range in URL" before it ever opens a connection.
+    /**
+     * Lists one remote directory, not recursing.
+     *
+     * curl answers a directory URL with a long listing in the shape of ls -l.
+     * The name is taken as everything after the eighth field so that spaces and
+     * brackets survive; a server that answers with bare names instead is
+     * handled too, at the cost of not knowing sizes or which entries are
+     * directories.
+     */
+    List<Entry> list(String remoteRelative) throws IOException, InterruptedException {
+        String listing = run(List.of(url(remoteRelative) + "/"));
+
+        List<Entry> entries = new ArrayList<>();
+        for (String line : listing.split("\n")) {
+            Entry entry = parseListing(line);
+            if (entry != null) {
+                entries.add(entry);
+            }
+        }
+        return entries;
+    }
+
+    /**
+     * @return null for blank lines, totals, and the . and .. entries
+     */
+    static Entry parseListing(String line) {
+        String trimmed = line.strip();
+        if (trimmed.isEmpty() || trimmed.startsWith("total ")) {
+            return null;
+        }
+
+        String name;
+        long size = -1;
+        boolean directory = false;
+
+        if (trimmed.matches("^[-dlbcps][rwxsStT-]{9}[.+]?\\s.*")) {
+            String[] fields = trimmed.split("\\s+", 9);
+            if (fields.length < 9) {
+                return null;
+            }
+            name = fields[8];
+            directory = trimmed.charAt(0) == 'd';
+            try {
+                size = Long.parseLong(fields[4]);
+            } catch (NumberFormatException e) {
+                size = -1;
+            }
+            // A symlink line reads "name -> target"; the target is not ours.
+            int arrow = name.indexOf(" -> ");
+            if (trimmed.charAt(0) == 'l' && arrow > 0) {
+                name = name.substring(0, arrow);
+            }
+        } else {
+            name = trimmed;
+        }
+
+        return (name.equals(".") || name.equals("..") || name.isEmpty())
+                ? null
+                : new Entry(name, size, directory);
+    }
+
+    /**
+     * Fetches a byte range, for reading metadata out of an archive without
+     * fetching the archive. See {@link ZipRange}.
+     *
+     * @return null when the range could not be fetched
+     */
+    byte[] range(String remoteRelative, long from, int length) {
+        if (length <= 0) {
+            return null;
+        }
+        try {
+            Path temp = Files.createTempFile("goblin-range", null);
+            try {
+                run(List.of("--range", from + "-" + (from + length - 1),
+                        "--output", temp.toString(), url(remoteRelative)));
+                byte[] bytes = Files.readAllBytes(temp);
+                // A server that ignores the range answers with the whole file.
+                // Taking the front of that would be silently wrong, so it is
+                // only usable when the range started at nothing.
+                if (bytes.length > length) {
+                    return (from == 0) ? java.util.Arrays.copyOf(bytes, length) : null;
+                }
+                return bytes;
+            } finally {
+                Files.deleteIfExists(temp);
+            }
+        } catch (IOException | InterruptedException e) {
+            return null;
+        }
+    }
+
+    /** Fetches a whole remote file. */
+    void download(String remoteRelative, Path localFile) throws IOException, InterruptedException {
+        Files.createDirectories(localFile.toAbsolutePath().getParent());
+        run(List.of("--output", localFile.toString(), url(remoteRelative)));
+    }
+
+    /**
+     * Moves a remote file, creating the target's directory first.
+     *
+     * SFTP rename does not create directories and does not move across
+     * filesystems, which is why this is a rename below one base rather than a
+     * general move.
+     */
+    void rename(String fromRelative, String toRelative) throws IOException, InterruptedException {
+        int slash = toRelative.lastIndexOf('/');
+        if (slash > 0) {
+            mkdirs(toRelative.substring(0, slash));
+        }
+        quote("rename " + quoted(absolute(fromRelative)) + " " + quoted(absolute(toRelative)));
+    }
+
+    /** Creates a directory and every missing parent below sftp.base. */
+    void mkdirs(String remoteRelative) throws IOException, InterruptedException {
+        StringBuilder path = new StringBuilder();
+        for (String segment : remoteRelative.split("/")) {
+            if (segment.isEmpty()) {
+                continue;
+            }
+            if (path.length() > 0) {
+                path.append('/');
+            }
+            path.append(segment);
+            // Prefixed with * so curl carries on when the directory is already
+            // there, which for every parent but the last is the normal case.
+            quote("*mkdir " + quoted(absolute(path.toString())));
+        }
+    }
+
+    /** Removes a directory, quietly doing nothing when it is not empty. */
+    void rmdir(String remoteRelative) throws IOException, InterruptedException {
+        quote("*rmdir " + quoted(absolute(remoteRelative)));
+    }
+
+    /**
+     * Runs an SFTP command without transferring anything.
+     *
+     * curl needs a URL even for a pure command, so it is pointed at the base
+     * directory and the listing that comes back is thrown away.
+     */
+    private void quote(String command) throws IOException, InterruptedException {
+        run(List.of("--quote", command, "--output", "/dev/null", "sftp://" + host + ":" + port
+                + base + "/"));
+    }
+
+    /**
+     * The one place the credentials are attached, so every operation
+     * authenticates the same way.
+     */
+    private String run(List<String> args) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>(List.of(
-                "curl", "--globoff", "--silent", "--show-error", "--fail",
-                "--ftp-create-dirs",
-                "--upload-file", localFile.toString(),
-                url));
+                // --globoff is load-bearing, not cosmetic: curl treats [] and {}
+                // as glob ranges, and it applies that to --upload-file as well as
+                // to the URL. A folder like "Show (2012) [tmdbid-34391]" makes
+                // curl fail with "bad range in URL" before it ever connects.
+                "curl", "--globoff", "--silent", "--show-error", "--fail"));
+        cmd.addAll(args);
 
         Limits.addRateLimit(cmd);
 
@@ -194,15 +349,31 @@ final class Sftp {
                 cmd.add("--pubkey");
                 cmd.add(pub.toString());
             }
-
-            Proc.capture(cmd);
-            return;
+            return Proc.capture(cmd);
         }
 
         // --config - makes curl read the credentials from stdin, so they never
         // appear in the argument list of the process.
         cmd.addAll(List.of("--config", "-"));
-        Proc.captureWithInput(cmd, "user = \"" + escape(user) + ":" + escape(password) + "\"\n");
+        return Proc.captureWithInput(cmd, "user = \"" + escape(user) + ":" + escape(password) + "\"\n");
+    }
+
+    private String url(String remoteRelative) {
+        return "sftp://" + host + ":" + port + base + "/" + encodePath(remoteRelative);
+    }
+
+    /** The raw remote path for a quote command, which is not URL-encoded. */
+    private String absolute(String remoteRelative) {
+        return base + "/" + remoteRelative;
+    }
+
+    /**
+     * Quotes a path for curl's SFTP command parser, which understands double
+     * quotes and backslash escapes. Without this every comic with a space in
+     * its name would be read as two arguments.
+     */
+    static String quoted(String path) {
+        return '"' + path.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
     }
 
     /** Quotes for a curl config line, which understands backslash escapes. */

@@ -86,6 +86,8 @@ final class Tidy {
         boolean upload = false;
         boolean keepLocal = false;
         boolean convert = false;
+        boolean remote = false;
+        boolean withTitles = false;
         Path logFile = null;
 
         for (int i = 2; i < args.length; i++) {
@@ -97,6 +99,8 @@ final class Tidy {
                 case "--upload" -> upload = true;
                 case "--keep-local" -> keepLocal = true;
                 case "--convert" -> convert = true;
+                case "--remote" -> remote = true;
+                case "--titles" -> withTitles = true;
                 case "--log" -> logFile = Path.of(args[++i]);
                 default -> {
                     System.err.println("Unknown option: " + args[i]);
@@ -110,21 +114,38 @@ final class Tidy {
             return 2;
         }
 
-        Sftp sftp = upload ? Sftp.fromConfig(Goblin.CONFIG) : null;
-        if (upload && sftp == null) {
-            System.err.println("--upload was given, but " + Goblin.CONFIG
-                    + " is missing or incomplete.");
+        // --remote needs it too, and needs it for the files themselves rather
+        // than for a copy afterwards.
+        Sftp sftp = (upload || remote) ? Sftp.fromConfig(Goblin.CONFIG) : null;
+        if ((upload || remote) && sftp == null) {
+            System.err.println((remote ? "--remote" : "--upload") + " was given, but "
+                    + Goblin.CONFIG + " is missing or incomplete.");
             return 2;
         }
-        if (sftp != null) {
+        if (sftp != null && !remote) {
             System.out.println("Uploading to " + sftp.describe());
             System.out.println();
+        }
+
+        // The files are on another machine, so nothing below this applies -
+        // there is no local directory to walk and no local move to make.
+        if (remote) {
+            if (!"comics".equals(type)) {
+                System.err.println("--remote handles comics only. Music needs its tags read, "
+                        + "which means whole files, and video is identified from its name "
+                        + "anyway - run those locally.");
+                return 2;
+            }
+            String root = stripSlashes(args[1]);
+            String destination = (out != null) ? stripSlashes(out.toString()) : root;
+            return RemoteTidy.run(sftp, root, destination, apply, useDatabase, withTitles);
         }
 
         // Without --type the folder is an inbox: one subfolder per kind, each
         // going to its own place in the library.
         if (type == null) {
-            return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert);
+            return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert,
+                    withTitles);
         }
 
         if (!Files.isDirectory(folder)) {
@@ -134,7 +155,7 @@ final class Tidy {
 
         Path target = (out != null) ? out : Path.of(destination(type));
         return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
-                convert);
+                convert, withTitles);
     }
 
     /**
@@ -164,7 +185,7 @@ final class Tidy {
      * command.
      */
     private static int inbox(Path folder, boolean apply, boolean useDatabase, Path logFile,
-                             Sftp sftp, boolean keepLocal, boolean convert) throws Exception {
+                             Sftp sftp, boolean keepLocal, boolean convert, boolean withTitles) throws Exception {
 
         if (!Files.isDirectory(folder)) {
             for (String type : TYPES) {
@@ -190,7 +211,7 @@ final class Tidy {
             any = true;
             System.out.println("================ " + type + " ================");
             worst = Math.max(worst, one(sub, Path.of(destination(type)), type,
-                    apply, useDatabase, logFile, sftp, keepLocal, convert));
+                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles));
             System.out.println();
         }
 
@@ -204,7 +225,7 @@ final class Tidy {
 
     private static int one(Path folder, Path target, String type, boolean apply,
                            boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal,
-                           boolean convert)
+                           boolean convert, boolean withTitles)
             throws Exception {
         Set<String> wanted = switch (type) {
             case "comics" -> COMIC_EXT;
@@ -239,13 +260,36 @@ final class Tidy {
         List<String> conflicts = new ArrayList<>();
         Map<Path, Path> claimed = new LinkedHashMap<>();
 
-        Map<String, Integer> comicYears = "comics".equals(type)
-                ? seriesYears(files)
-                : Map.of();
+        ComicVine localComicVine = null;
+        Map<Path, Comics.Id> comicIds = new LinkedHashMap<>();
+        Map<String, Comics.Series> comicSeries = Map.of();
+        Map<String, Map<String, String>> comicTitles = new HashMap<>();
+
+        if ("comics".equals(type)) {
+            for (Path file : files) {
+                Comics.Id id = comicId(file);
+                if (id != null) {
+                    comicIds.put(file, id);
+                }
+            }
+            ComicVine comicVine = useDatabase ? ComicVine.from(Goblin.CONFIG) : null;
+            if (useDatabase && comicVine == null) {
+                System.out.println("No comicvine.api_key and no COMICVINE_API_KEY - "
+                        + "working from the files alone.");
+                System.out.println();
+            }
+            comicSeries = Comics.resolve(comicIds.values(), comicVine);
+            if (withTitles) {
+                for (Map.Entry<String, Comics.Series> e : comicSeries.entrySet()) {
+                    comicTitles.put(e.getKey(), Comics.titles(comicVine, e.getValue().volume()));
+                }
+            }
+            localComicVine = comicVine;
+        }
 
         for (Path file : files) {
             Plan plan = "comics".equals(type)
-                    ? comicPlan(target, comicId(file), comicYears)
+                    ? comicPlan(file, target, comicIds.get(file), comicSeries, comicTitles, withTitles)
                     : plan(context, file);
             if (plan == null) {
                 unidentified.add(folder.relativize(file).toString());
@@ -279,9 +323,15 @@ final class Tidy {
             return 0;
         }
 
-        return apply(plans, folder, target,
+        int status = apply(plans, folder, target,
                 (logFile != null) ? logFile : Path.of("goblin-tidy.log"),
                 sftp, keepLocal);
+
+        // After the moves, so the folders the artwork belongs in exist.
+        if ("comics".equals(type)) {
+            artwork(target, comicSeries, localComicVine, sftp);
+        }
+        return status;
     }
 
     // ------------------------------------------------------------------
@@ -380,50 +430,42 @@ final class Tidy {
     }
 
     /** Everything a comic says about itself, before the folder is decided. */
-    private static ComicId comicId(Path file) {
-        Cbz.Info info = "cbz".equals(extension(file)) ? Cbz.read(file) : null;
-        if (info != null) {
-            return new ComicId(file, info.series(), info.number(), info.year(), "ComicInfo.xml");
-        }
-
-        Guess.Comic guess = Guess.comic(file.getFileName().toString());
-        return (guess == null) ? null
-                : new ComicId(file, guess.series(), guess.number(), guess.year(), "file name");
-    }
-
-    /** The earliest year seen per series, which is the one the folder carries. */
-    private static Map<String, Integer> seriesYears(List<Path> files) {
-        Map<String, Integer> years = new HashMap<>();
-        for (Path file : files) {
-            ComicId id = comicId(file);
-            if (id == null || id.year() == null) {
-                continue;
+    private static Comics.Id comicId(Path file) {
+        if ("cbz".equals(extension(file))) {
+            Cbz.Info info = Cbz.read(file);
+            if (info != null) {
+                return new Comics.Id(info.series(), info.number(), info.year(), "ComicInfo.xml");
             }
-            years.merge(id.series().toLowerCase(Locale.ROOT), id.year(), Math::min);
         }
-        return years;
+        return Comics.identify(file.getFileName().toString(), null);
     }
 
-    private static Plan comicPlan(Path target, ComicId id, Map<String, Integer> seriesYears) {
+    /**
+     * Where one comic belongs.
+     *
+     * The series folder and the spelling of the name come from
+     * {@link Comics}, which has already reconciled every file of the series
+     * with each other and with the database. This only puts one file into that
+     * answer.
+     */
+    private static Plan comicPlan(Path file, Path target, Comics.Id id,
+                                  Map<String, Comics.Series> series,
+                                  Map<String, Map<String, String>> titles, boolean withTitles) {
         if (id == null) {
             return null;
         }
-
-        String series = Naming.sanitize(id.series());
-        Integer folderYear = seriesYears.get(id.series().toLowerCase(Locale.ROOT));
-        String folder = series + (folderYear != null ? " (" + folderYear + ")" : "");
-
-        StringBuilder name = new StringBuilder(series);
-        if (id.number() != null) {
-            name.append(" #").append(issue(id.number()));
+        String key = id.series().toLowerCase(Locale.ROOT);
+        Comics.Series info = series.get(key);
+        if (info == null) {
+            return null;
         }
-        // The issue's own year, not the series', so two printings stay apart.
-        if (id.year() != null) {
-            name.append(" (").append(id.year()).append(')');
-        }
-        name.append('.').append(extension(id.file()));
 
-        return new Plan(id.file(), target.resolve(folder).resolve(name.toString()), id.how());
+        String title = (withTitles && id.number() != null)
+                ? titles.getOrDefault(key, Map.of()).get(Comics.normalise(id.number()))
+                : null;
+
+        String name = Comics.fileName(id, info.name(), title, extension(file));
+        return new Plan(file, target.resolve(info.folder()).resolve(name), id.how());
     }
 
     private static Plan music(Context context, Path file) {
@@ -799,11 +841,77 @@ final class Tidy {
         return directory.startsWith(root) && !directory.equals(root);
     }
 
-    /** Pads a plain issue number to three digits so the folder sorts. */
-    private static String issue(String number) {
-        return number.matches("\\d{1,3}")
-                ? String.format("%03d", Integer.parseInt(number))
-                : number;
+
+    /**
+     * cover.jpg and series.json into each series folder.
+     *
+     * Beside the issues rather than inside them: writing metadata into every
+     * archive means rewriting every file, and a rewrite that goes wrong costs
+     * a comic. This costs one small file per series and every reader that
+     * matters looks for it.
+     */
+    private static void artwork(Path target, Map<String, Comics.Series> series,
+                                ComicVine comicVine, Sftp sftp) {
+        if (comicVine == null || series.isEmpty()) {
+            return;
+        }
+
+        int written = 0;
+        for (String key : Comics.sortedKeys(series)) {
+            Comics.Series info = series.get(key);
+            if (info.volume() == null) {
+                continue;
+            }
+            Path folder = target.resolve(info.folder());
+            try {
+                Files.createDirectories(folder);
+
+                Path cover = folder.resolve("cover.jpg");
+                boolean any = comicVine.saveCover(info.volume().coverUrl(), cover);
+
+                Path json = folder.resolve("series.json");
+                if (!Files.exists(json)) {
+                    Files.writeString(json, Comics.seriesJson(info), StandardCharsets.UTF_8);
+                    any = true;
+                }
+
+                if (any) {
+                    written++;
+                    if (sftp != null) {
+                        uploadIfPresent(sftp, target, cover);
+                        uploadIfPresent(sftp, target, json);
+                    }
+                }
+            } catch (IOException e) {
+                System.out.println("  Artwork for " + info.folder() + " skipped - " + e.getMessage());
+            }
+        }
+        if (written > 0) {
+            System.out.printf("Wrote artwork for %d series.%n", written);
+        }
+    }
+
+    private static void uploadIfPresent(Sftp sftp, Path base, Path file) {
+        if (!Files.exists(file)) {
+            return;
+        }
+        try {
+            sftp.upload(file, base.relativize(file).toString().replace(java.io.File.separatorChar, '/'));
+        } catch (IOException | InterruptedException e) {
+            System.out.println("  Upload of " + file.getFileName() + " failed - " + e.getMessage());
+        }
+    }
+
+    /** A remote path below sftp.base carries no leading or trailing slash. */
+    static String stripSlashes(String path) {
+        String out = path.strip().replace('\\', '/');
+        while (out.startsWith("/")) {
+            out = out.substring(1);
+        }
+        while (out.endsWith("/")) {
+            out = out.substring(0, out.length() - 1);
+        }
+        return out;
     }
 
     private static String extension(Path file) {
