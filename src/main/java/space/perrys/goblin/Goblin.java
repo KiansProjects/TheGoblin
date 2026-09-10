@@ -103,6 +103,43 @@ public final class Goblin {
         }
     }
 
+    /** Said once per process, not once per queued job. */
+    private static boolean warnedAboutEncoding;
+
+    /**
+     * Warns when file names cannot be decoded.
+     *
+     * Java reads file names from the operating system with sun.jnu.encoding,
+     * which follows the locale - and a container started without one gets
+     * ASCII. Every name carrying an umlaut is then unmappable, and the walk
+     * dies on it with a message from the JDK that says nothing about the fix.
+     *
+     * It cannot be repaired from in here: sun.jnu.encoding is read while the
+     * VM starts, before any -D or System.setProperty can reach it. The locale
+     * is the only lever, so that is what this points at.
+     */
+    private static void warnAboutEncoding() {
+        if (warnedAboutEncoding) {
+            return;
+        }
+        warnedAboutEncoding = true;
+
+        String encoding = System.getProperty("sun.jnu.encoding", "");
+        if (encoding.toUpperCase(java.util.Locale.ROOT).replace("-", "").contains("UTF8")) {
+            return;
+        }
+
+        System.out.println("Warning: file names are being read as " + encoding
+                + ", not UTF-8. Anything with an umlaut or an accent in its name will");
+        System.out.println("fail to decode. Start with a locale instead:");
+        System.out.println();
+        System.out.println("    LC_ALL=C.UTF-8 java -jar goblin.jar ...");
+        System.out.println();
+        System.out.println("-Dsun.jnu.encoding does not work - the VM reads it before a -D "
+                + "can apply.");
+        System.out.println();
+    }
+
     /** Package-private so the queue worker can run a job without a second JVM. */
     static int run(String[] args) throws Exception {
         if (args.length == 0 || args[0].equals("-h") || args[0].equals("--help")) {
@@ -111,6 +148,7 @@ public final class Goblin {
         }
 
         Limits.load(CONFIG);
+        warnAboutEncoding();
 
         return switch (args[0]) {
             case "shows" -> shows(args);

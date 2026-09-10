@@ -1,5 +1,11 @@
 #!/bin/bash
 # Wrapper so that 'goblin ...' is enough instead of 'java -jar ...'.
 # Symlink to /usr/local/bin/goblin and adjust GOBLIN_JAR.
+# Java decodes file names with sun.jnu.encoding, which follows the locale. A
+# shell with no locale set means ASCII, and any file name with an umlaut in it
+# then fails to decode. -Dsun.jnu.encoding is read too late to help.
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+
 GOBLIN_JAR="${GOBLIN_JAR:-$(dirname "$(readlink -f "$0")")/goblin.jar}"
 exec java -jar "$GOBLIN_JAR" "$@"

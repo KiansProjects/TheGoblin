@@ -7,6 +7,14 @@
 # byte offset, so replacing it underneath itself corrupts the running shell.
 cd /home/container
 export PATH="/home/container/bin:${PATH}"
+
+# Java decodes file names with sun.jnu.encoding, which follows the locale -
+# and a container with no locale set means ASCII. Every file name carrying an
+# umlaut is then "unmappable" and the walk dies on it. This cannot be fixed
+# with -Dsun.jnu.encoding: the JDK reads it before a -D can apply. The locale
+# is the only lever.
+export LANG="${LANG:-C.UTF-8}"
+export LC_ALL="${LC_ALL:-C.UTF-8}"
 export TMDB_API_KEY
 export YTDLP_ARGS
 
