@@ -341,6 +341,27 @@ shows <url> "Movie title" --movie --out output/movies
 
 ## Playlists
 
+Three shapes of link are accepted and two of them are rewritten first, with a
+line saying so:
+
+| You paste | It reads |
+| --- | --- |
+| `/show/VLPLxxxx` | `/playlist?list=PLxxxx` |
+| `/watch?v=…&list=PLxxxx` | `/playlist?list=PLxxxx` |
+| `/watch_videos?video_ids=a,b,c` | left alone — see below |
+
+The first is what the share sheet of a series hands out; the `VL` is a wrapper
+around the playlist id. The second is what copying a video *out of* a playlist
+gives you, where the list is what was meant and the single video is an accident
+of which one happened to be open. yt-dlp resolves neither into the playlist, so
+they are rewritten here rather than in each caller.
+
+`watch_videos` is deliberately untouched: those carry their video ids in the
+link itself, and reading them straight out of it keeps the order guaranteed.
+That also makes it the way to treat a handful of loose videos as one playlist —
+paste the ids in the order you want them.
+
+
 For a playlist with one video per season:
 
 ```

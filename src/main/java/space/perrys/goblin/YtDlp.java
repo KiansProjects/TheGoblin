@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Thin wrapper around yt-dlp. */
 final class YtDlp {
@@ -75,6 +77,12 @@ final class YtDlp {
      * Returns pairs of video ID and title in playlist order.
      */
     static List<String[]> playlist(String url) throws IOException, InterruptedException {
+        String normalised = normalise(url);
+        if (!normalised.equals(url)) {
+            System.out.println("Reading this as " + normalised);
+            url = normalised;
+        }
+
         // Ask yt-dlp first - only that way do we get the titles that season
         // boundaries can be read from. The IDs in the link are the fallback,
         // in case YouTube does not resolve the playlist.
@@ -112,6 +120,34 @@ final class YtDlp {
             }
         }
         return out;
+    }
+
+    /**
+     * Turns the shapes YouTube hands out into a plain playlist URL.
+     *
+     * The share sheet of a series gives out /show/VL<playlist id> - the VL is
+     * a wrapper, the playlist id is the rest. Copying a video out of a
+     * playlist gives /watch?v=...&list=..., where the list is what was meant
+     * and the single video is an accident of which one was open.
+     *
+     * Both are left alone by yt-dlp, which resolves the one video or nothing
+     * at all. Rewriting them here means one place rather than every caller.
+     */
+    static String normalise(String url) {
+        Matcher show = Pattern.compile("youtube\\.com/show/VL(P[A-Za-z0-9_-]+)").matcher(url);
+        if (show.find()) {
+            return "https://www.youtube.com/playlist?list=" + show.group(1);
+        }
+
+        // Not for watch_videos - those carry their ids in the link and are
+        // read straight out of it, which keeps the order guaranteed.
+        if (url.contains("/watch") && !url.contains("watch_videos")) {
+            Matcher list = Pattern.compile("[?&]list=(P[A-Za-z0-9_-]+)").matcher(url);
+            if (list.find()) {
+                return "https://www.youtube.com/playlist?list=" + list.group(1);
+            }
+        }
+        return url;
     }
 
     /**
