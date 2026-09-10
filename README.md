@@ -17,6 +17,33 @@ The project has no external Java dependencies — `./build.sh` is enough, Maven 
 sudo ln -s "$PWD/goblin" /usr/local/bin/goblin
 ```
 
+### On a Pelican server
+
+`panel/` holds a Pelican egg that runs TheGoblin as a server of its own:
+
+| File | What it is |
+| --- | --- |
+| `panel/egg-thegoblin.json` | import this under Admin → Eggs |
+| `panel/install.sh` | the install script, embedded verbatim in the egg |
+| `panel/goblin-console.sh` | the startup command, turns the console into the prompt |
+
+The installer fetches `yt-dlp` and `jellyfin-ffmpeg` as portable binaries, adds
+Deno as the JavaScript runtime yt-dlp needs for YouTube's player challenges,
+and builds the jar straight from `GOBLIN_REPO`. `goblin-console.sh` then
+rebuilds on every server start, so a push is deployed by restarting. A build
+that fails leaves the previous jar in place and starts anyway.
+
+Two things do not update themselves: `goblin-console.sh` and
+`goblin.properties.example` are copied out of the checkout during the install,
+not on every start. A change to either needs a reinstall.
+
+Set `AUTO_COMMAND` to `queue` if you want the console to be the queue described
+below rather than a one-command-at-a-time prompt.
+
+*Not verified: none of this has been run through an actual Panel. The scripts
+parse (`bash -n`) and the egg is valid JSON whose embedded install script is
+byte-identical to `panel/install.sh` — that is the whole of what was checked.*
+
 ## Usage
 
 ```bash

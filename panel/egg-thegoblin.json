@@ -1,0 +1,180 @@
+{
+    "_comment": "TheGoblin - splits YouTube videos into Jellyfin-ready episodes. Rebuilds from the repo on every server start; if the build fails, the last working jar keeps running.",
+    "meta": {
+        "version": "PLCN_v3",
+        "update_url": null
+    },
+    "exported_at": "2026-09-08T20:40:00+00:00",
+    "name": "TheGoblin",
+    "author": "perry@perrys.space",
+    "uuid": "8ac79cee-4371-40b7-9514-2487a16426e0",
+    "description": "A tool server rather than a game server: the Panel console becomes the Goblin prompt. Ships yt-dlp and jellyfin-ffmpeg as portable binaries and builds TheGoblin straight from the git repo on install.",
+    "icon": null,
+    "tags": [
+        "media",
+        "youtube",
+        "jellyfin"
+    ],
+    "features": null,
+    "docker_images": {
+        "Java 21": "ghcr.io/pelican-eggs/yolks:java_21",
+        "Java 25": "ghcr.io/pelican-eggs/yolks:java_25"
+    },
+    "file_denylist": [],
+    "startup_commands": {
+        "Default": "./goblin-console.sh"
+    },
+    "config": {
+        "files": "{}",
+        "startup": "{\n    \"done\": \"TheGoblin ready.\"\n}",
+        "logs": "{}",
+        "stop": "stop"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\n# TheGoblin installer for Pelican Panel\n# Server directory = /mnt/server\n\nset -e\n\napt-get update -y\napt-get install -y --no-install-recommends curl jq git tar xz-utils unzip ca-certificates\n\nmkdir -p /mnt/server/bin /mnt/server/output\ncd /mnt/server\n\n## ---------------------------------------------------------------\n## 1) yt-dlp (standalone binary, brings its own Python)\n## ---------------------------------------------------------------\nif [ -z \"${YTDLP_VERSION}\" ] || [ \"${YTDLP_VERSION}\" == \"latest\" ]; then\n    YTDLP_URL=\"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux\"\nelse\n    YTDLP_URL=\"https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp_linux\"\nfi\n\necho \"-> yt-dlp\"\ncurl -fL -o bin/yt-dlp \"${YTDLP_URL}\"\nchmod +x bin/yt-dlp\n\n## ---------------------------------------------------------------\n## 2) jellyfin-ffmpeg (portable build, practically static)\n## ---------------------------------------------------------------\nif [ -z \"${FFMPEG_VERSION}\" ] || [ \"${FFMPEG_VERSION}\" == \"latest\" ]; then\n    FFMPEG_VERSION=$(curl -sSL https://api.github.com/repos/jellyfin/jellyfin-ffmpeg/releases/latest \\\n        | jq -r '.tag_name' | sed 's/^v//')\nfi\necho \"-> ffmpeg ${FFMPEG_VERSION}\"\n\ncurl -fL -o ffmpeg.tar.xz \\\n    \"https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v${FFMPEG_VERSION}/jellyfin-ffmpeg_${FFMPEG_VERSION}_portable_linux64-gpl.tar.xz\"\ntar -xJf ffmpeg.tar.xz -C bin\nrm -f ffmpeg.tar.xz\nchmod +x bin/ffmpeg bin/ffprobe\n\n## ---------------------------------------------------------------\n## 3) Deno as the JS runtime\n##\n## yt-dlp needs a JavaScript runtime to solve YouTube's player challenges.\n## Without one the log says \"JS runtimes: none\" and some videos stop\n## returning format URLs entirely. Deno is a single binary and simply ends\n## up in bin/ after unpacking.\n## ---------------------------------------------------------------\nif [ \"${INSTALL_DENO}\" != \"0\" ]; then\n    if [ -z \"${DENO_VERSION}\" ] || [ \"${DENO_VERSION}\" == \"latest\" ]; then\n        DENO_URL=\"https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip\"\n    else\n        DENO_URL=\"https://github.com/denoland/deno/releases/download/${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip\"\n    fi\n\n    echo \"-> deno\"\n    if curl -fL -o deno.zip \"${DENO_URL}\"; then\n        unzip -o -q deno.zip -d bin\n        rm -f deno.zip\n        chmod +x bin/deno\n    else\n        echo \"!! deno could not be downloaded, carrying on without it\"\n    fi\nelse\n    echo \"-> deno skipped\"\nfi\n\n## ---------------------------------------------------------------\n## 4) Build TheGoblin\n##\n## The checkout is also where the two files that ship alongside the jar come\n## from - the console wrapper and the config template. Copying them out of it\n## rather than writing them here means they can never drift from the code\n## they belong to. Both are taken before the checkout is removed again.\n## ---------------------------------------------------------------\nif [ -n \"${GOBLIN_REPO}\" ]; then\n    echo \"-> TheGoblin from ${GOBLIN_REPO}\"\n    rm -rf .src\n    git clone --depth 1 --branch \"${GOBLIN_BRANCH:-main}\" \"${GOBLIN_REPO}\" .src\n\n    rm -rf .classes\n    mkdir -p .classes\n    javac -d .classes $(find .src/src -name \"*.java\")\n    jar --create --file goblin.jar \\\n        --main-class space.perrys.goblin.Goblin \\\n        -C .classes .\n\n    [ -f .src/goblin.properties.example ] && cp -f .src/goblin.properties.example .\n    [ -f .src/panel/goblin-console.sh ] && cp -f .src/panel/goblin-console.sh .\n\n    rm -rf .classes .src\n    echo \"-> goblin.jar built\"\nelif [ -f goblin.jar ]; then\n    echo \"-> goblin.jar is already here, left untouched\"\nelse\n    echo \"!! No GOBLIN_REPO set and no goblin.jar present.\"\n    echo \"!! Upload the jar to /home/container/goblin.jar with the file manager.\"\nfi\n\n## ---------------------------------------------------------------\n## 5) Configuration template\n##\n## goblin.properties carries the TMDb key and the SFTP target for --upload.\n## Only the example is written, never the real file: a goblin.properties\n## holding the sample host would make --upload dial 192.168.1.50, and a\n## reinstall would overwrite credentials you had already filled in.\n##\n## The TMDb key does not need this file - the TMDB_API_KEY variable of this\n## egg covers it, and an empty tmdb.api_key line here does not shadow it.\n## ---------------------------------------------------------------\nif [ ! -f goblin.properties.example ]; then\n    cat > goblin.properties.example <<'PROPEOF'\n# Configuration for TheGoblin.\n# Copy this file to goblin.properties and fill it in. goblin.properties is\n# read from the working directory (/home/container).\n\n# TMDb key for the show ID, year and artwork.\n# Only needed if you would rather not use this egg's TMDB_API_KEY variable;\n# this file takes priority over it. Leaving the line empty is fine.\ntmdb.api_key =\n\n# SFTP target for --upload.\n# Key authentication only - a password would be visible in plain text\n# in this file and in the process list.\nsftp.host = 192.168.1.50\nsftp.port = 22\nsftp.user = perry\nsftp.key  = /home/container/.ssh/id_ed25519\nsftp.base = /srv/media/shows\nPROPEOF\nfi\n\necho \"-> goblin.properties.example written\"\n\n## ---------------------------------------------------------------\n## 6) Console wrapper\n##\n## It is the egg's startup command, so without it the server does not come\n## up at all. Section 4 copies it out of the checkout; the only way to get\n## here without one is an install with no GOBLIN_REPO.\n## ---------------------------------------------------------------\nif [ -f goblin-console.sh ]; then\n    chmod +x goblin-console.sh\n    echo \"-> goblin-console.sh installed\"\nelse\n    echo \"!! goblin-console.sh is missing - the server will not start.\"\n    echo \"!! It lives at panel/goblin-console.sh in the repository. Either set\"\n    echo \"!! GOBLIN_REPO and reinstall, or upload it to /home/container and\"\n    echo \"!! make it executable.\"\nfi\n\necho \"----------------------------------------\"\necho \"Installation finished.\"\necho \"yt-dlp: $(bin/yt-dlp --version 2>/dev/null || echo unknown)\"\necho \"deno:   $(bin/deno --version 2>/dev/null | head -1 || echo 'not installed')\"\necho \"\"\necho \"For --upload: rename goblin.properties.example to goblin.properties\"\necho \"and fill in the SFTP target. The TMDb key already comes from the egg.\"\necho \"----------------------------------------\"\n",
+            "container": "ghcr.io/pelican-eggs/installers:java_21",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Git repository",
+            "description": "Repo TheGoblin is built from, e.g. https://github.com/KiansProjects/TheGoblin.git. Leave empty if you upload goblin.jar by hand.",
+            "env_variable": "GOBLIN_REPO",
+            "default_value": "https://github.com/KiansProjects/TheGoblin.git",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "nullable",
+                "string",
+                "max:200"
+            ],
+            "sort": 1
+        },
+        {
+            "name": "Branch",
+            "description": "Branch or tag that gets checked out.",
+            "env_variable": "GOBLIN_BRANCH",
+            "default_value": "main",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "required",
+                "string",
+                "max:64"
+            ],
+            "sort": 2
+        },
+        {
+            "name": "Auto update",
+            "description": "1 = fetch and rebuild the repo on every server start. 0 = build on reinstall only. If the build fails, the server starts with the last working jar.",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "required",
+                "in:0,1"
+            ],
+            "sort": 3
+        },
+        {
+            "name": "TMDb API key",
+            "description": "Optional. Without a key everything works except the show ID and artwork. MusicBrainz needs no key at all.",
+            "env_variable": "TMDB_API_KEY",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "nullable",
+                "string",
+                "max:64"
+            ],
+            "sort": 4
+        },
+        {
+            "name": "Startup command",
+            "description": "Optional. Run once when the server starts, e.g. 'chapters https://...'. Leave empty for plain console operation.",
+            "env_variable": "AUTO_COMMAND",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "nullable",
+                "string",
+                "max:500"
+            ],
+            "sort": 5
+        },
+        {
+            "name": "yt-dlp extra arguments",
+            "description": "Appended to every yt-dlp call, e.g. --extractor-args \"youtube:player_client=web_safari,default\". For videos that require a particular player client or a sign-in. Quotes are honoured.",
+            "env_variable": "YTDLP_ARGS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "nullable",
+                "string",
+                "max:500"
+            ],
+            "sort": 6
+        },
+        {
+            "name": "Install Deno",
+            "description": "1 = install the JS runtime yt-dlp needs. Without it some YouTube videos return no format URLs at all.",
+            "env_variable": "INSTALL_DENO",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "required",
+                "in:0,1"
+            ],
+            "sort": 7
+        },
+        {
+            "name": "Deno version",
+            "description": "Release tag such as v2.9.5, or 'latest'.",
+            "env_variable": "DENO_VERSION",
+            "default_value": "latest",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "required",
+                "string",
+                "max:20"
+            ],
+            "sort": 8
+        },
+        {
+            "name": "yt-dlp version",
+            "description": "Release tag such as 2026.08.19, or 'latest'.",
+            "env_variable": "YTDLP_VERSION",
+            "default_value": "latest",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": [
+                "required",
+                "string",
+                "max:20"
+            ],
+            "sort": 9
+        },
+        {
+            "name": "ffmpeg version",
+            "description": "Version of the portable jellyfin-ffmpeg build, e.g. 7.1.4-3, or 'latest'.",
+            "env_variable": "FFMPEG_VERSION",
+            "default_value": "latest",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": [
+                "required",
+                "string",
+                "max:20"
+            ],
+            "sort": 10
+        }
+    ]
+}
