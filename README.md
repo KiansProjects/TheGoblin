@@ -6,6 +6,7 @@ Splits a YouTube video into individual episode files along its chapters and stor
 
 - Java 21+
 - `yt-dlp` and `ffmpeg` on the PATH
+- optional, for `cbz` only: one of `unar`, `unrar`, `7zz`, `7z` or `bsdtar`
 
 The project has no external Java dependencies — `./build.sh` is enough, Maven is optional (`mvn package`).
 
@@ -595,6 +596,50 @@ java -jar goblin.jar tidy /var/lib/pelican/volumes/<uuid>/media/books/Comics --t
 
 *Exercised against fixture trees for all four types, including the moving, the
 log and the subtitles. Never yet run against a real library.*
+
+## Repacking .cbr as .cbz
+
+```
+cbz <folder>          list what would be converted
+cbz <folder> --apply  convert, then remove the .cbr
+cbz <folder> --keep   convert and keep the .cbr as well
+```
+
+Both formats hold the same thing — one issue's pages in an archive. The
+difference is that a `.cbz` is a zip, and `tidy` can read the `ComicInfo.xml`
+out of a zip with nothing but Java's standard library. RAR needs a decoder Java
+does not have, so a `.cbr` falls through to the weakest identification source
+there is: its file name. The same issue as a `.cbz` is sorted from what the
+publisher wrote inside it.
+
+So this is worth running before `tidy comics`, not after.
+
+Unpacking is left to an external program, the way yt-dlp and ffmpeg do the rest
+of the heavy lifting. The first of `unar`, `unrar`, `7zz`, `7z`, `bsdtar` that
+is installed is used; the run names which one. Without any of them only one
+case still works, and it is a common one: **plenty of `.cbr` files are zips
+that somebody renamed.** Those are recognised by their first four bytes and
+need no unpacking at all.
+
+What it will not do:
+
+* **Overwrite an existing `.cbz`.** The `.cbr` is left alone and reported.
+* **Delete anything it has not read back.** The new archive is written under a
+  `.part` name, reopened, and its entry count compared against the pages that
+  went in. Only then does it take its final name and the original go.
+* **Carry the clutter along.** `__MACOSX`, `Thumbs.db`, `desktop.ini`,
+  `.DS_Store` and AppleDouble `._` files are dropped; a single folder that
+  every page shares is stripped, so the pages sit at the root where readers
+  expect them.
+
+Pages are stored, not deflated — they are JPEGs already — and ordered the way a
+page number orders, so page 10 does not land between 1 and 2.
+
+*Verified against fixture archives: the ordering, the junk filtering, the
+folder stripping, the round trip through `ComicInfo.xml`, the refusal to
+overwrite, and the renamed-zip case end to end. **The RAR path itself has never
+been run** — no extractor was installed where this was written, so what is
+tested is everything around the external command, not the command.*
 
 ## Uploading straight to another server
 

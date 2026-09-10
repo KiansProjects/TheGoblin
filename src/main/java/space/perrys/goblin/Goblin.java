@@ -27,6 +27,7 @@ public final class Goblin {
               goblin concat <url> <title> --movie     the same, stored as a movie
               goblin tidy input                       sort an inbox into the library
               goblin tidy <folder> --type <kind>      sort one kind of loose files
+              goblin cbz <folder>                     repack .cbr comics as .cbz
               goblin playlist <url> <name>            print ready-made shows lines
               goblin playlist <url> <name> --episodes one video per episode
                                                       --from/--to limit the range,
@@ -67,6 +68,10 @@ public final class Goblin {
                   --keep-local        keep the local copy after the upload
                   --log <file>        where the list of moves goes
 
+            Options for 'cbz':
+                  --apply             actually convert; without it nothing is written
+                  --keep              keep the .cbr files instead of removing them
+
             Environment:
               TMDB_API_KEY            for the show ID and artwork (optional)
             """;
@@ -96,6 +101,7 @@ public final class Goblin {
             case "concat" -> concat(args);
             case "audio" -> audio(args);
             case "tidy" -> Tidy.run(args);
+            case "cbz" -> Cbr.run(args);
             default -> {
                 System.err.println("Unknown command: " + args[0]);
                 System.err.print(USAGE);
