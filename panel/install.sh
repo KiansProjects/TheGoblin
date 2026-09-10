@@ -119,7 +119,12 @@ if [ ! -f goblin.properties.example ]; then
 # this file takes priority over it. Leaving the line empty is fine.
 tmdb.api_key =
 
-# SFTP target for --upload.
+# ComicVine key for comic metadata and covers, free after registering at
+# https://comicvine.gamespot.com/api/. Or the COMICVINE_API_KEY variable
+# of this egg. Without a key comics are sorted from the files alone.
+comicvine.api_key =
+
+# SFTP target for --upload, and for 'tidy --remote'.
 # Key authentication only - a password would be visible in plain text
 # in this file and in the process list.
 sftp.host = 192.168.1.50

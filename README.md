@@ -598,6 +598,19 @@ Same thing for a single kind. The target is that kind's destination unless
 `--out` says otherwise — `-o .` sorts in place. Every run prints the target
 before it does anything, so check that line.
 
+| Option | Meaning |
+| --- | --- |
+| `-t, --type <kind>` | comics, music, shows or movies |
+| `-o, --out <path>` | target, defaults to that kind's destination |
+| `--apply` | actually move; without it nothing happens |
+| `--remote` | the files are on the SFTP target, comics only |
+| `--convert` | repack `.cbr` as `.cbz` first, comics only |
+| `--titles` | issue titles from ComicVine in the file name, comics only |
+| `--no-database` | no lookup at all |
+| `--upload` | copy the result on to the SFTP target |
+| `--keep-local` | with `--upload`, keep the local copy |
+| `--log <file>` | where the undo log goes |
+
 **Nothing moves without `--apply`.** The plain run prints what it would do and
 stops. Read it before you let it loose.
 
@@ -680,6 +693,90 @@ java -jar goblin.jar tidy /var/lib/pelican/volumes/<uuid>/media/books/Comics --t
 
 *Exercised against fixture trees for all four types, including the moving, the
 log and the subtitles. Never yet run against a real library.*
+
+### Sorting them where they lie, over SFTP
+
+The other way round: leave the files on the media server and reach across.
+
+```
+tidy media/books/Comics --type comics --remote
+tidy media/books/Comics --type comics --remote --apply
+```
+
+The path is relative to `sftp.base`, and `--out` moves the sorted folders
+somewhere else below the same base. Comics only — music has to have its tags
+read, which means whole files, and video is identified from its name anyway.
+
+Nothing is transferred. SFTP has a rename the server carries out itself, so a
+shelf is sorted by moving names around, not gigabytes. The one thing that does
+have to be read is the `ComicInfo.xml` inside each archive, and that is read
+without fetching the archive:
+
+A zip is built to be read from the end. The record in its last bytes says where
+the table of contents is, the table of contents says where one entry sits, and
+that entry is a couple of kilobytes. Three small byte ranges instead of thirty
+megabytes. On the fixtures that is **1.9 % of the bytes**, and on real comics it
+is a good deal less, because the tail that has to be read is a fixed 64 KiB
+whatever the file weighs.
+
+A server that will not serve byte ranges is not a failure — that file falls back
+to being identified by its name, the same as a `.cbr` or a `.pdf`.
+
+Renames go into `goblin-tidy-remote.log` as `from<tab>to`, oldest first.
+
+*Verified: the zip reading against six fixtures, including the entry sitting
+last in the archive, sitting in a subfolder, and a zip comment behind the
+directory; the listing parser against the shapes curl returns, including names
+with spaces and brackets; the path quoting. **Not verified: any of it against a
+real SFTP server.** There is no `sshd` in the environment this was written in,
+so the wire itself has never carried one of these commands.*
+
+## Comic metadata and covers
+
+Comics have no TMDb — that database is film and television. The one the scene's
+`ComicInfo.xml` files come from is **ComicVine**, and `tidy` asks it when a key
+is present:
+
+```
+comicvine.api_key = your_key
+```
+
+Failing that the environment variable `COMICVINE_API_KEY` is read; the file
+takes priority. Without a key nothing changes — comics are sorted from what the
+files say about themselves, exactly as before.
+
+What the lookup is worth:
+
+* **The folder year stops being a guess.** Without it the year comes from the
+  earliest issue you happen to own, so a run starting at #4 lands in the wrong
+  year. ComicVine knows when the series started.
+* **The spelling gets fixed.** Whatever the files call it, the folder gets the
+  name the database uses, so `Cap America` and `Captain America` stop being two
+  series.
+* **A cover.** `cover.jpg` goes into the series folder.
+* **`series.json`** goes next to it — publisher, start year, description,
+  ComicVine id, in the ComicRack format that readers pick up.
+
+Both are written **beside** the issues, never into them. Putting metadata inside
+each archive would mean rewriting every file, and a rewrite that goes wrong
+costs a comic; this costs one small file per series.
+
+`--titles` additionally puts the issue title from the database into the file
+name, `Winter Soldier #001 (2012) - The Longest Winter.cbz`. Off by default,
+because it renames every file you own.
+
+Two things about this API that cost a run if you miss them, both handled here:
+it refuses a request without a User-Agent of its own, and the rate limit is 200
+requests an hour. A series is therefore looked up **once**, not once per issue,
+and `--titles` costs one further request per series.
+
+*Verified: the parsing against saved responses covering the awkward shapes — a
+missing `original_url`, an empty `image`, a null `cover_date`, a `1.MU` issue
+number, HTML in the description; the series matching, which picks the right one
+of three series called "Captain America" by year; that the generated
+`series.json` parses. **Not verified: a single live call.** ComicVine is blocked
+from the environment this was written in, so neither the URLs nor the key
+handling have ever been exercised against the real API.*
 
 ## A queue instead of six terminals
 

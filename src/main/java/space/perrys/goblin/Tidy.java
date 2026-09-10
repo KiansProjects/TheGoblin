@@ -75,6 +75,7 @@ final class Tidy {
     static int run(String[] args) throws Exception {
         if (args.length < 2) {
             System.err.println("Usage: goblin tidy <folder> --type comics|music|shows|movies [options]");
+            System.err.println("       goblin tidy <remote folder> --type comics --remote");
             return 2;
         }
 

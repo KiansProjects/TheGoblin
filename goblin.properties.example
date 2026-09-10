@@ -8,7 +8,16 @@
 # Alternatively the environment variable TMDB_API_KEY; the file takes priority.
 tmdb.api_key =
 
-# SFTP target for --upload.
+# ComicVine key for comic metadata and covers. TMDb covers film and
+# television and knows nothing about comics, so this is a second key.
+# Free from https://comicvine.gamespot.com/api/ after registering.
+# Alternatively the environment variable COMICVINE_API_KEY; the file takes
+# priority. Without a key 'tidy --type comics' works from the files alone.
+# The API allows 200 requests an hour, which is why a series is looked up
+# once rather than once per issue.
+comicvine.api_key =
+
+# SFTP target for --upload, and for 'tidy --remote'.
 sftp.host = 192.168.1.50
 sftp.port = 22
 sftp.user = perry
