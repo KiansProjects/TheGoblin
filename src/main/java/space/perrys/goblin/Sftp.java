@@ -147,7 +147,7 @@ final class Sftp {
     }
 
     String describe() {
-        return user + "@" + host + ":" + port + " -> " + base
+        return user + "@" + host + ":" + port + " -> " + (base.isEmpty() ? "/" : base)
                 + (password != null ? " (password)" : "");
     }
 
@@ -416,9 +416,18 @@ final class Sftp {
         return (slash < 0) ? path : path.substring(0, slash);
     }
 
-    private static String stripTrailingSlash(String s) {
+    /**
+     * Normalises sftp.base so that every path built from it has exactly one
+     * slash in each join.
+     *
+     * A bare "/" - which is what a Panel's own SFTP gives you, since it drops
+     * you straight into the server directory - becomes the empty string.
+     * Leaving it as "/" would produce sftp://host//media/... and a rename
+     * argument of //media/..., which some servers accept and some do not.
+     */
+    static String stripTrailingSlash(String s) {
         String out = s.strip();
-        while (out.endsWith("/") && out.length() > 1) {
+        while (out.endsWith("/")) {
             out = out.substring(0, out.length() - 1);
         }
         return out;
