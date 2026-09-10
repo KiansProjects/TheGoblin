@@ -56,10 +56,10 @@ final class RemoteTidy {
      * @param withTitles whether issue titles from the database join the names
      */
     static int run(Sftp sftp, String root, String target, String type, boolean apply,
-                   boolean useDatabase, boolean withTitles, boolean flat)
+                   boolean useDatabase, boolean withTitles, boolean flat, Books.Group group)
             throws IOException, InterruptedException {
         return "books".equals(type)
-                ? books(sftp, root, target, apply, useDatabase, flat)
+                ? books(sftp, root, target, apply, useDatabase, flat, group)
                 : comics(sftp, root, target, apply, useDatabase, withTitles);
     }
 
@@ -172,7 +172,7 @@ final class RemoteTidy {
      * itself and by whatever the database says about its ISBN.
      */
     private static int books(Sftp sftp, String root, String target, boolean apply,
-                             boolean useDatabase, boolean flat)
+                             boolean useDatabase, boolean flat, Books.Group group)
             throws IOException, InterruptedException {
 
         System.out.println("Remote: " + sftp.describe());
@@ -228,7 +228,7 @@ final class RemoteTidy {
 
         for (Map.Entry<String, Books.Id> e : ids.entrySet()) {
             Books.Id id = byKey.getOrDefault(Books.key(e.getValue()), e.getValue());
-            String folder = Books.folder(id, flat);
+            String folder = Books.folder(id, group, flat);
             String to = target + (folder.isEmpty() ? "" : "/" + folder)
                     + "/" + Books.fileName(id, flat, extension(e.getKey()));
 
@@ -254,14 +254,14 @@ final class RemoteTidy {
         }
 
         int status = rename(sftp, moves, root);
-        bookCovers(sftp, ids.values(), byKey, target, library, flat);
+        bookCovers(sftp, ids.values(), byKey, target, library, group, flat);
         return status;
     }
 
     /** A cover beside each book, from Open Library, keyed by its ISBN. */
     private static void bookCovers(Sftp sftp, java.util.Collection<Books.Id> ids,
                                    Map<String, Books.Id> byKey, String target,
-                                   OpenLibrary library, boolean flat) {
+                                   OpenLibrary library, Books.Group group, boolean flat) {
         if (library == null) {
             return;
         }
@@ -284,7 +284,7 @@ final class RemoteTidy {
                 try {
                     Files.deleteIfExists(temp);
                     if (library.saveCover(id.isbn(), temp)) {
-                        String folder = Books.folder(id, flat);
+                        String folder = Books.folder(id, group, flat);
                         sftp.upload(temp, target + (folder.isEmpty() ? "" : "/" + folder)
                                 + "/" + Books.coverName(flat, id));
                         written++;

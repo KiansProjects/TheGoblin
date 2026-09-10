@@ -609,6 +609,7 @@ before it does anything, so check that line.
 | `--convert` | repack `.cbr` as `.cbz` first, comics only |
 | `--titles` | issue titles from ComicVine in the file name, comics only |
 | `--flat` | no folder per book, books only |
+| `--by <field>` | group books by `author`, `publisher` or `none` |
 | `--no-database` | no lookup at all |
 | `--upload` | copy the result on to the SFTP target |
 | `--keep-local` | with `--upload`, keep the local copy |
@@ -821,11 +822,52 @@ Jürgen Gratzke/
     IT-Berufe: Schülerband.pdf
 ```
 
-`--flat` drops the per-book folder and gives `Author/Title (Year).pdf` instead.
+### Which field the shelf is grouped by
+
+The top level is a real choice, not a default worth defending. A novel is
+looked for under its author; a textbook is bought and looked for under its
+publisher and series. So it is one flag:
+
+```
+tidy media/books/Books --type books --by publisher
+```
+
+```
+Author/Title (Year)/…        --by author       (the default)
+Westermann/Title (Year)/…    --by publisher
+Title (Year)/…               --by none
+```
+
+Set it once in `goblin.properties` instead, because it is a property of the
+shelf rather than of the run:
+
+```
+books.group = publisher
+```
+
+A book missing the chosen field keeps its title folder and loses the level
+above it, rather than being filed under an invented "Unknown" — one folder of
+strays is easier to deal with than a folder that lies.
+
+`--flat` drops the per-book folder on top of that, giving `Westermann/Title
+(Year).pdf`.
 
 Two files of the same book — the `.epub` and the `.pdf` — share an ISBN, so
 they resolve to one entry and land beside each other rather than in two folders
 that differ by a comma.
+
+### Covers
+
+A cover comes down for every book whose ISBN is known and lands beside it as
+`cover.jpg`, or as `Title (Year).jpg` with `--flat`. That is independent of the
+grouping — it follows the book, wherever the book goes.
+
+The ISBN is the whole mechanism, so the covers arrive for exactly the books
+that have one: from the file name on anything from a download site, from the
+`.opf` on an EPUB, and not at all on a bare `Der Schwarm.epub`. Open Library
+answers a book it has no cover for with a one-pixel placeholder rather than a
+404, so anything implausibly small is discarded — a shelf of identical grey
+squares is worse than no covers.
 
 *Verified: the file-name reading against the real shapes, including a field
 order where publisher and year share one field and an ISBN written with

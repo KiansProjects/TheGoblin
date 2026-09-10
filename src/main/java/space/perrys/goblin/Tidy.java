@@ -99,6 +99,9 @@ final class Tidy {
         boolean remote = false;
         boolean withTitles = false;
         boolean flat = false;
+        // Settable once in goblin.properties, because which field the shelf is
+        // grouped by is a property of the shelf, not of the run.
+        Books.Group group = Books.Group.of(Limits.property("books.group"));
         Path logFile = null;
 
         for (int i = 2; i < args.length; i++) {
@@ -113,6 +116,7 @@ final class Tidy {
                 case "--remote" -> remote = true;
                 case "--titles" -> withTitles = true;
                 case "--flat" -> flat = true;
+                case "--by" -> group = Books.Group.of(args[++i]);
                 case "--log" -> logFile = Path.of(args[++i]);
                 default -> {
                     System.err.println("Unknown option: " + args[i]);
@@ -151,14 +155,14 @@ final class Tidy {
             String root = stripSlashes(args[1]);
             String destination = (out != null) ? stripSlashes(out.toString()) : root;
             return RemoteTidy.run(sftp, root, destination, type, apply, useDatabase,
-                    withTitles, flat);
+                    withTitles, flat, group);
         }
 
         // Without --type the folder is an inbox: one subfolder per kind, each
         // going to its own place in the library.
         if (type == null) {
             return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert,
-                    withTitles, flat);
+                    withTitles, flat, group);
         }
 
         if (!Files.isDirectory(folder)) {
@@ -168,7 +172,7 @@ final class Tidy {
 
         Path target = (out != null) ? out : Path.of(destination(type));
         return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
-                convert, withTitles, flat);
+                convert, withTitles, flat, group);
     }
 
     /**
@@ -199,8 +203,8 @@ final class Tidy {
      * command.
      */
     private static int inbox(Path folder, boolean apply, boolean useDatabase, Path logFile,
-                             Sftp sftp, boolean keepLocal, boolean convert, boolean withTitles, boolean flat)
-            throws Exception {
+                             Sftp sftp, boolean keepLocal, boolean convert, boolean withTitles, boolean flat,
+                             Books.Group group) throws Exception {
 
         if (!Files.isDirectory(folder)) {
             for (String type : TYPES) {
@@ -226,7 +230,7 @@ final class Tidy {
             any = true;
             System.out.println("================ " + type + " ================");
             worst = Math.max(worst, one(sub, Path.of(destination(type)), type,
-                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles, flat));
+                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles, flat, group));
             System.out.println();
         }
 
@@ -240,7 +244,8 @@ final class Tidy {
 
     private static int one(Path folder, Path target, String type, boolean apply,
                            boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal,
-                           boolean convert, boolean withTitles, boolean flat)
+                           boolean convert, boolean withTitles, boolean flat,
+                           Books.Group group)
             throws Exception {
         Set<String> wanted = switch (type) {
             case "comics" -> COMIC_EXT;
@@ -325,7 +330,7 @@ final class Tidy {
             Plan plan = switch (type) {
                 case "comics" -> comicPlan(file, target, comicIds.get(file), comicSeries,
                         comicTitles, withTitles);
-                case "books" -> bookPlan(file, target, bookIds.get(file), bookByKey, flat);
+                case "books" -> bookPlan(file, target, bookIds.get(file), bookByKey, group, flat);
                 default -> plan(context, file);
             };
             if (plan == null) {
@@ -369,7 +374,7 @@ final class Tidy {
             artwork(target, comicSeries, localComicVine, sftp);
         }
         if ("books".equals(type)) {
-            bookArtwork(target, bookIds.values(), bookByKey, localLibrary, flat, sftp);
+            bookArtwork(target, bookIds.values(), bookByKey, localLibrary, group, flat, sftp);
         }
         return status;
     }
@@ -495,13 +500,14 @@ final class Tidy {
      * same folder beside each other, which is what a reader wants.
      */
     private static Plan bookPlan(Path file, Path target, Books.Id id,
-                                 Map<String, Books.Id> byKey, boolean flat) {
+                                 Map<String, Books.Id> byKey, Books.Group group,
+                                 boolean flat) {
         if (id == null) {
             return null;
         }
         Books.Id resolved = byKey.getOrDefault(Books.key(id), id);
 
-        String folder = Books.folder(resolved, flat);
+        String folder = Books.folder(resolved, group, flat);
         Path directory = folder.isEmpty() ? target : target.resolve(folder);
         return new Plan(file, directory.resolve(Books.fileName(resolved, flat, extension(file))),
                 resolved.how());
@@ -510,7 +516,7 @@ final class Tidy {
     /** A cover beside each book, from Open Library, keyed by its ISBN. */
     private static void bookArtwork(Path target, java.util.Collection<Books.Id> ids,
                                     Map<String, Books.Id> byKey, OpenLibrary library,
-                                    boolean flat, Sftp sftp) {
+                                    Books.Group group, boolean flat, Sftp sftp) {
         if (library == null || ids.isEmpty()) {
             return;
         }
@@ -528,7 +534,7 @@ final class Tidy {
                 continue;
             }
 
-            String folder = Books.folder(id, flat);
+            String folder = Books.folder(id, group, flat);
             Path directory = folder.isEmpty() ? target : target.resolve(folder);
             Path cover = directory.resolve(Books.coverName(flat, id));
 

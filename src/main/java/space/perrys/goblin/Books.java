@@ -201,30 +201,59 @@ final class Books {
                 : "title:" + id.title().toLowerCase(Locale.ROOT);
     }
 
+    /** What the level above the book is named after. */
+    enum Group {
+        AUTHOR, PUBLISHER, NONE;
+
+        static Group of(String value) {
+            if (value == null) {
+                return AUTHOR;
+            }
+            return switch (value.strip().toLowerCase(Locale.ROOT)) {
+                case "publisher", "verlag" -> PUBLISHER;
+                case "none", "flat", "" -> NONE;
+                default -> AUTHOR;
+            };
+        }
+    }
+
     /**
-     * The folder a book goes in: "Author/Title (Year)".
+     * The folder a book goes in.
      *
-     * That is the layout Jellyfin's book library walks and the one Calibre
-     * writes, so it is the least surprising default. {@code flat} drops the
-     * per-book folder for shelves that would rather have the files loose under
-     * the author.
+     * Which field the top level carries is a real choice, not a default worth
+     * defending: a novel is looked for under its author, a textbook under its
+     * publisher and series. Both layouts are one line apart, so neither is
+     * baked in.
      *
-     * A book with no author keeps its title folder and loses the level above
-     * it, rather than being filed under an invented "Unknown".
+     * A book missing the chosen field keeps its title folder and loses the
+     * level above it, rather than being filed under an invented "Unknown" -
+     * one folder of strays is easier to deal with than a folder that lies.
      */
-    static String folder(Id id, boolean flat) {
+    static String folder(Id id, Group group, boolean flat) {
         String title = Naming.sanitize(id.title());
         if (id.year() != null) {
             title = title + " (" + id.year() + ")";
         }
-        String author = (id.author() == null) ? null : Naming.sanitize(id.author());
+
+        String top = switch (group) {
+            case AUTHOR -> id.author();
+            case PUBLISHER -> id.publisher();
+            case NONE -> null;
+        };
+        String parent = (top == null || top.isBlank()) ? null : Naming.sanitize(top);
 
         if (flat) {
-            return (author == null) ? "" : author;
+            return (parent == null) ? "" : parent;
         }
-        return (author == null) ? title : author + "/" + title;
+        return (parent == null) ? title : parent + "/" + title;
     }
 
+    /**
+     * The file itself.
+     *
+     * Flat means there is no folder carrying the year, so the name takes it -
+     * otherwise two editions of the same book would collide.
+     */
     static String fileName(Id id, boolean flat, String extension) {
         String name = Naming.sanitize(id.title());
         if (flat && id.year() != null) {
