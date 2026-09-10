@@ -85,6 +85,7 @@ final class Tidy {
         boolean useDatabase = true;
         boolean upload = false;
         boolean keepLocal = false;
+        boolean convert = false;
         Path logFile = null;
 
         for (int i = 2; i < args.length; i++) {
@@ -95,6 +96,7 @@ final class Tidy {
                 case "--no-database" -> useDatabase = false;
                 case "--upload" -> upload = true;
                 case "--keep-local" -> keepLocal = true;
+                case "--convert" -> convert = true;
                 case "--log" -> logFile = Path.of(args[++i]);
                 default -> {
                     System.err.println("Unknown option: " + args[i]);
@@ -122,7 +124,7 @@ final class Tidy {
         // Without --type the folder is an inbox: one subfolder per kind, each
         // going to its own place in the library.
         if (type == null) {
-            return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal);
+            return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert);
         }
 
         if (!Files.isDirectory(folder)) {
@@ -131,7 +133,8 @@ final class Tidy {
         }
 
         Path target = (out != null) ? out : Path.of(destination(type));
-        return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal);
+        return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
+                convert);
     }
 
     /**
@@ -161,7 +164,7 @@ final class Tidy {
      * command.
      */
     private static int inbox(Path folder, boolean apply, boolean useDatabase, Path logFile,
-                             Sftp sftp, boolean keepLocal) throws Exception {
+                             Sftp sftp, boolean keepLocal, boolean convert) throws Exception {
 
         if (!Files.isDirectory(folder)) {
             for (String type : TYPES) {
@@ -187,7 +190,7 @@ final class Tidy {
             any = true;
             System.out.println("================ " + type + " ================");
             worst = Math.max(worst, one(sub, Path.of(destination(type)), type,
-                    apply, useDatabase, logFile, sftp, keepLocal));
+                    apply, useDatabase, logFile, sftp, keepLocal, convert));
             System.out.println();
         }
 
@@ -200,13 +203,20 @@ final class Tidy {
     }
 
     private static int one(Path folder, Path target, String type, boolean apply,
-                           boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal)
+                           boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal,
+                           boolean convert)
             throws Exception {
         Set<String> wanted = switch (type) {
             case "comics" -> COMIC_EXT;
             case "music" -> MUSIC_EXT;
             default -> VIDEO_EXT;
         };
+
+        // Before anything is identified, so the repacked issues are read from
+        // their ComicInfo.xml rather than from their file name.
+        if (convert && "comics".equals(type)) {
+            repack(folder, apply);
+        }
 
         List<Path> files = collect(folder, wanted);
         if (files.isEmpty()) {
@@ -328,6 +338,45 @@ final class Tidy {
             case "shows" -> show(context, file);
             default -> movie(context, file);
         };
+    }
+
+    /**
+     * Turns the .cbr files in the folder into .cbz before the sorting starts.
+     *
+     * Worth doing first rather than after: a .cbr is identified from its file
+     * name, a .cbz from the ComicInfo.xml its publisher wrote. Converting is
+     * the difference between the weakest source and the strongest one.
+     *
+     * Like everything else here it needs --apply. The dry run says how many
+     * files it concerns and notes that the plan below is the one for the files
+     * as they stand, not as they would stand afterwards.
+     */
+    private static void repack(Path folder, boolean apply) throws Exception {
+        List<Path> archives = collect(folder, Set.of("cbr"));
+        if (archives.isEmpty()) {
+            return;
+        }
+
+        String tool = Cbr.extractor();
+        System.out.printf("%d .cbr %s to repack as .cbz first%s.%n", archives.size(),
+                archives.size() == 1 ? "file" : "files",
+                (tool == null)
+                        ? " - no extractor installed, so only the ones that are zips under a "
+                                + ".cbr name can be done"
+                        : ", unpacking with " + tool);
+
+        if (!apply) {
+            System.out.println("Not with a dry run. The plan below is the one for the files "
+                    + "as they are now, which for a .cbr means sorted by name.");
+            System.out.println();
+            return;
+        }
+
+        Cbr.Tally tally = Cbr.convertAll(archives, tool, false);
+        if (tally.failed() > 0) {
+            System.out.println(tally.failed() + " stayed .cbr and are sorted by name.");
+        }
+        System.out.println();
     }
 
     /** Everything a comic says about itself, before the folder is decided. */

@@ -521,6 +521,10 @@ before it does anything, so check that line.
 **Nothing moves without `--apply`.** The plain run prints what it would do and
 stops. Read it before you let it loose.
 
+`--convert` repacks any `.cbr` as `.cbz` first, which is what lets the next
+step read its `ComicInfo.xml` instead of guessing from the file name. See
+[Repacking .cbr as .cbz](#repacking-cbr-as-cbz).
+
 ### Where it gets its answers
 
 Three sources, in this order — and the database is last, not first:
@@ -612,7 +616,16 @@ does not have, so a `.cbr` falls through to the weakest identification source
 there is: its file name. The same issue as a `.cbz` is sorted from what the
 publisher wrote inside it.
 
-So this is worth running before `tidy comics`, not after.
+So this is worth running before `tidy comics`, not after — or as part of it:
+
+```
+tidy input --convert --apply
+tidy <folder> --type comics --convert --apply
+```
+
+which repacks first and then sorts the results from what they say about
+themselves. A dry run says how many files it concerns but converts nothing, so
+the plan it prints is the one for the files as they stand.
 
 Unpacking is left to an external program, the way yt-dlp and ffmpeg do the rest
 of the heavy lifting. The first of `unar`, `unrar`, `7zz`, `7z`, `bsdtar` that

@@ -48,6 +48,10 @@ final class Cbr {
     record Converted(int entries, boolean wasZip) {
     }
 
+    /** The outcome of a run over several archives. */
+    record Tally(int converted, int failed) {
+    }
+
     private Cbr() {
     }
 
@@ -94,50 +98,70 @@ final class Cbr {
         }
         System.out.println();
 
-        int done = 0;
+        if (!apply) {
+            for (Path cbr : archives) {
+                System.out.println("  " + cbr.getFileName() + "  ->  "
+                        + target(cbr).getFileName());
+            }
+            System.out.println();
+            System.out.println("Nothing was touched. Run again with --apply.");
+            return 0;
+        }
+
+        Tally tally = convertAll(archives, tool, keep);
+
+        System.out.println();
+        System.out.printf("%d converted, the .cbr %s.%n", tally.converted(),
+                keep ? "files kept" : "files removed");
+        if (tally.failed() > 0) {
+            System.out.println(tally.failed() + " could not be converted and were left alone.");
+        }
+        return (tally.failed() > 0) ? 1 : 0;
+    }
+
+    /**
+     * Converts every archive in the list, reporting each one as it goes.
+     *
+     * A file that will not convert is one comic still sorted by its name, not
+     * a failed run, so the loop carries on and the count comes back.
+     *
+     * @param keep whether to leave the .cbr behind once the .cbz is readable
+     */
+    static Tally convertAll(List<Path> archives, String tool, boolean keep)
+            throws InterruptedException {
+        int converted = 0;
         int failed = 0;
 
         for (Path cbr : archives) {
             String name = cbr.getFileName().toString();
-            Path cbz = cbr.resolveSibling(name.replaceFirst("(?i)\\.cbr$", "") + ".cbz");
+            Path cbz = target(cbr);
 
             if (Files.exists(cbz)) {
                 System.out.println("  " + name + ": " + cbz.getFileName()
                         + " is already there, left alone.");
                 continue;
             }
-            if (!apply) {
-                System.out.println("  " + name + "  ->  " + cbz.getFileName());
-                continue;
-            }
 
             try {
-                Converted converted = convert(cbr, cbz, tool);
+                Converted result = convert(cbr, cbz, tool);
                 if (!keep) {
                     Files.delete(cbr);
                 }
                 System.out.printf("  %s  ->  %s  (%d %s%s)%n", name, cbz.getFileName(),
-                        converted.entries(), converted.entries() == 1 ? "page" : "pages",
-                        converted.wasZip() ? ", was a zip under a .cbr name" : "");
-                done++;
+                        result.entries(), result.entries() == 1 ? "page" : "pages",
+                        result.wasZip() ? ", was a zip under a .cbr name" : "");
+                converted++;
             } catch (IOException e) {
                 System.out.println("  " + name + ": not converted (" + e.getMessage() + ")");
                 failed++;
             }
         }
+        return new Tally(converted, failed);
+    }
 
-        System.out.println();
-        if (!apply) {
-            System.out.println("Nothing was touched. Run again with --apply.");
-            return 0;
-        }
-
-        System.out.printf("%d converted, the .cbr %s.%n", done,
-                keep ? "files kept" : "files removed");
-        if (failed > 0) {
-            System.out.println(failed + " could not be converted and were left alone.");
-        }
-        return (failed > 0) ? 1 : 0;
+    private static Path target(Path cbr) {
+        return cbr.resolveSibling(
+                cbr.getFileName().toString().replaceFirst("(?i)\\.cbr$", "") + ".cbz");
     }
 
     /** A single .cbr, or every .cbr below a folder. */

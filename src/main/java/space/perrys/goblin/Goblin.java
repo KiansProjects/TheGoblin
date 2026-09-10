@@ -66,6 +66,8 @@ public final class Goblin {
                   --no-database       skip TMDb, sort from names alone
                   --upload            push the sorted files on over SFTP
                   --keep-local        keep the local copy after the upload
+                  --convert           repack .cbr comics as .cbz before sorting,
+                                      so their ComicInfo.xml can be read
                   --log <file>        where the list of moves goes
 
             Options for 'cbz':
