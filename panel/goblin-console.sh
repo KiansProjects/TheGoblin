@@ -79,14 +79,18 @@ run() {
             echo "queue                             work through commands one at a time"
             echo "queue add <command>               append one job"
             echo "rebuild                           rebuild from the repo"
-            echo "ls                                list the output directory"
-            echo "disk                              show used space"
+            echo "ls [path]                         list a directory, default here"
+            echo "pwd                               show the working directory"
+            echo "disk [path]                       show used space, default output"
             echo "update                            update yt-dlp"
             echo "stop                              shut the server down"
             ;;
         rebuild) update_from_git ;;
-        ls)      ls -lhR output | head -100 ;;
-        disk)    du -sh output ;;
+        # A path makes this the way to check where you actually are before
+        # blaming a command for not finding a folder.
+        ls)      ls -lh "${1:-.}" | head -100 ;;
+        pwd)     pwd ;;
+        disk)    du -sh "${1:-output}" ;;
         update)  bin/yt-dlp -U ;;
         stop|exit|quit) echo "Bye."; exit 0 ;;
         *)       echo "Unknown command: ${cmd} (help for the list)" ;;
