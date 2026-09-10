@@ -87,9 +87,21 @@ final class Proc {
         return out.toString();
     }
 
-    /** Runs the command and passes its output straight through to the console. */
+    /**
+     * Runs the command and passes its output straight through to the console.
+     *
+     * Output and errors are inherited, standard input is not. ffmpeg reads its
+     * stdin for keystroke commands, so an inherited one lets it eat whatever
+     * is typed at the console - which the queue worker is reading. Every
+     * ffmpeg call here passes -y, so nothing was ever going to be answered
+     * there anyway.
+     */
     static void inherit(List<String> command) throws IOException, InterruptedException {
-        Process p = new ProcessBuilder(command).inheritIO().start();
+        Process p = new ProcessBuilder(command)
+                .redirectInput(ProcessBuilder.Redirect.from(new java.io.File("/dev/null")))
+                .redirectOutput(ProcessBuilder.Redirect.INHERIT)
+                .redirectError(ProcessBuilder.Redirect.INHERIT)
+                .start();
         int code = p.waitFor();
         if (code != 0) {
             throw new IOException(command.get(0) + " exited with code " + code);

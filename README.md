@@ -601,6 +601,66 @@ java -jar goblin.jar tidy /var/lib/pelican/volumes/<uuid>/media/books/Comics --t
 *Exercised against fixture trees for all four types, including the moving, the
 log and the subtitles. Never yet run against a real library.*
 
+## A queue instead of six terminals
+
+```
+queue                          work through the list, one job at a time
+queue add <command...>         put a job in it
+queue list                     the list and what became of each job
+queue remove <n>               drop one
+queue clear [--done|--all]     drop what is waiting, what succeeded, or everything
+```
+
+Downloads are long and the services behind them are not infinitely patient.
+Starting six at once is how you find a rate limit. `queue` turns a list of work
+into one job at a time, with `--delay <seconds>` between them when you want to
+go easy on something.
+
+**The queue is a file, and that is the point.** `goblin-queue.tsv` in the
+working directory, one job per line with its state. A container that restarts
+mid-download comes back to the same list — and the job it was on is marked
+pending again rather than silently lost, because a job left as `running` can
+only mean the last run was killed.
+
+A job that fails is one job that failed. It is marked `failed`, the reason is
+printed, and the queue carries on; `clear --done` therefore keeps the failures
+so you can look at them and put them back.
+
+### The console is the input
+
+The worker reads standard input while it works, on its own thread. **On a
+Pelican server the console is exactly that**, so this is the natural startup
+command for the egg:
+
+```
+java -jar goblin.jar queue
+```
+
+Paste a command into the server console and it joins the queue; paste five and
+they run one after another while you close the tab. Alongside commands it takes
+`list`, `pause`, `resume` and `quit` — `pause` lets the running job finish and
+starts nothing new, `quit` stops after it.
+
+Child processes are started without a standard input of their own, so ffmpeg
+cannot eat what you type. (It reads stdin for keystroke commands otherwise, and
+inherits it from us.)
+
+Jobs run inside the same process, so there is no second JVM per job. `queue`
+cannot queue itself.
+
+### Adding from somewhere else
+
+`queue add` appends a line, so a second shell can add work while the worker
+runs. Both sides read the file before they write it and write it through a
+temporary file, which is enough for one person adding jobs by hand. It is not a
+lock: two processes writing in the same millisecond can still lose an entry.
+
+*Verified: the command-line splitting and its round trip through the file (20
+cases), the worker running four real jobs including one that failed without
+taking the queue with it, the recovery of an interrupted job, `clear` keeping
+failures, and the console path end to end — typed in, queued, run, `list`,
+`quit`. Never yet run for days on the real server.*
+
 ## Repacking .cbr as .cbz
 
 ```

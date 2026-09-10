@@ -28,6 +28,13 @@ public final class Goblin {
               goblin tidy input                       sort an inbox into the library
               goblin tidy <folder> --type <kind>      sort one kind of loose files
               goblin cbz <folder>                     repack .cbr comics as .cbz
+              goblin queue                            work through the queue, one job
+                                                      at a time, reading the console
+              goblin queue add <command...>           put a job in the queue
+              goblin queue list                       show the queue and its history
+              goblin queue remove <n>                 drop one job
+              goblin queue clear [--done|--all]       drop what is waiting, what
+                                                      succeeded, or everything
               goblin playlist <url> <name>            print ready-made shows lines
               goblin playlist <url> <name> --episodes one video per episode
                                                       --from/--to limit the range,
@@ -70,6 +77,11 @@ public final class Goblin {
                                       so their ComicInfo.xml can be read
                   --log <file>        where the list of moves goes
 
+            Options for 'queue':
+                  --delay <seconds>   pause between jobs, to go easy on a service
+                  --once              stop when the queue runs dry instead of waiting
+                  --file <path>       queue file (default: goblin-queue.tsv)
+
             Options for 'cbz':
                   --apply             actually convert; without it nothing is written
                   --keep              keep the .cbr files instead of removing them
@@ -87,7 +99,8 @@ public final class Goblin {
         }
     }
 
-    private static int run(String[] args) throws Exception {
+    /** Package-private so the queue worker can run a job without a second JVM. */
+    static int run(String[] args) throws Exception {
         if (args.length == 0 || args[0].equals("-h") || args[0].equals("--help")) {
             System.out.print(USAGE);
             return 0;
@@ -104,6 +117,7 @@ public final class Goblin {
             case "audio" -> audio(args);
             case "tidy" -> Tidy.run(args);
             case "cbz" -> Cbr.run(args);
+            case "queue" -> Queue.run(args);
             default -> {
                 System.err.println("Unknown command: " + args[0]);
                 System.err.print(USAGE);
