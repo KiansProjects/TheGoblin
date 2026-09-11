@@ -127,7 +127,7 @@ fix_file() {
     local f=$1 probe line
     probe=$(ffprobe -v error \
         -show_entries 'stream=index,codec_type,codec_name,profile,channels,channel_layout:stream_tags:stream_disposition=default' \
-        -of 'compact=p=0:nk=0' "file:$f" 2>/dev/null)
+        -of 'compact=p=0:nk=0' "file:$f" 2>/dev/null </dev/null)
     if [ $? -ne 0 ] || [ -z "$probe" ]; then
         echo "  unreadable, left alone: $f"
         unreadable=$((unreadable + 1))
@@ -236,7 +236,7 @@ EOF
         mp4|m4v|mov) extra=(-movflags +faststart) ;;
     esac
 
-    if ffmpeg -hide_banner -loglevel error -y -i "file:$f" -map 0 -c copy \
+    if ffmpeg -nostdin -hide_banner -loglevel error -y -i "file:$f" -map 0 -c copy \
             "${args[@]}" "${extra[@]}" "file:$tmp"; then
         # Onto the new file before it takes the old one's place, or a rewrite
         # as root hands the library to root. Not the modification time -
@@ -263,9 +263,12 @@ for root in "${roots[@]}"; do
         echo "No such file or directory: $root" >&2
         continue
     fi
-    while IFS= read -r -d '' f; do
+    # Both ffprobe and ffmpeg read standard input, and standard input here is
+    # the list of file names still to come. Without cutting them off they eat
+    # the front of the next path and that file is reported as unreadable.
+    while IFS= read -r -d '' f <&3; do
         fix_file "$f"
-    done < <(find "$root" -type f \
+    done 3< <(find "$root" -type f \
                   \( -iname '*.mkv' -o -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mov' \) \
                   ! -name '.*' ! -name '*.tracks.*' -print0 | sort -z)
 done
