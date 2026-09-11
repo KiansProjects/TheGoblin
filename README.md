@@ -417,7 +417,7 @@ If the playlist is out of order or mixes seasons, `--from-title` reads the numbe
 playlist <url> "Name" --episodes --from-title --out output/shows
 ```
 
-Every episode then lands in the right season folder, wherever it sits in the list. Among others `S01E02`, `s1e2`, `Season 2 Episode 5`, `Staffel 4 Folge 3` and `3x12` are recognised.  If the title names only an episode number, the season comes from `--season`.
+Every episode then lands in the right season folder, wherever it sits in the list. Among others `S01E02`, `s1e2`, `Season 2 Episode 5`, `Staffel 4 Folge 3` and `3x12` are recognised, as is the order the official channels use, `FULL EPISODE 5 | Season 2`, where the episode comes first. If the title names only an episode number, the season comes from `--season` — which is why the reversed order matters: without it a nine-season playlist reads as nine times season 1 and files 448 videos into 64 names.
 
 Videos without a recognisable number are **skipped and listed at the end** — not guessed at. A sequentially numbered fallback would otherwise overwrite a correctly detected episode. Mostly those are trailers or compilations that do not belong in the season anyway.
 
