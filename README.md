@@ -794,6 +794,58 @@ with spaces and brackets; the path quoting. **Not verified: any of it against a
 real SFTP server.** There is no `sshd` in the environment this was written in,
 so the wire itself has never carried one of these commands.*
 
+## One name for every track
+
+Jellyfin does not store the line it shows in the track picker. It builds it
+again on every page, out of the stream itself:
+
+```
+[title] - language - profile|codec - channel layout - default - external
+```
+
+An attribute is dropped when the title already contains it, compared as a
+substring. "Profile or codec" is meant literally - a profile that is not `lc`
+replaces the codec name, so AAC-LC reads as `AAC` and HE-AAC reads as `HE-AAC`
+and nothing else. `Default` is not metadata at all, it is the disposition flag,
+translated into the server's language.
+
+Which leaves little to go wrong, and always the same three things when it does:
+
+```
+goblin tracks input
+goblin tracks /srv/media/shows --apply --lang eng
+```
+
+* **A title nobody wrote.** Jellyfin looks for the title in the `title` tag,
+  then `name`, then falls back to the container's handler name unless that is
+  the default `SoundHandler`. A handler name is a technical field, which is why
+  files off YouTube introduce themselves as
+  `ISO Media file produced by Google Inc.` in the track list. Removing it makes
+  Jellyfin print the derived attributes instead - the same ones it prints for
+  every other file.
+* **A title that only repeats the rest.** `Stereo` and `Surround 5.1` say
+  nothing the channel layout does not. A title is dropped only when *every*
+  word in it is already among the derived attributes, so `Commentary`,
+  `Audio Description` and the name of a cut stay.
+* **A missing language.** Without it the first field disappears, and a library
+  where some tracks read `English - AAC - Stereo` and others read `AAC -
+  Stereo` is exactly the unevenness this is for. `--lang` fills in the ones
+  that state nothing; without it they are only listed.
+
+Two audio tracks marked as default, or none at all, is corrected to the first
+one. Which of two sensible candidates should be the default is not - that is a
+decision from whoever built the file.
+
+Nothing is written without `--apply`, and a file that needs none of this is
+never opened for writing. The correction is a remux with `-c copy`, so nothing
+is re-encoded and the picture is untouched, but a second copy is written beside
+the original and moved over: a 16 GiB film needs 16 GiB free while it is
+rewritten. MP4 files come back with `+faststart`.
+
+Jellyfin reads all of this when it next scans the library. "Automatically
+refresh metadata from the internet: Never" does not stop that - the setting is
+about the databases, not about the file.
+
 ## Comic metadata and covers
 
 Comics have no TMDb — that database is film and television. The one the scene's

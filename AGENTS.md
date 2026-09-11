@@ -91,6 +91,7 @@ Changing them means changing them without a safety net.
 | `TitleMatch.java` | find the episode by its title when the channel numbers differently than TMDb |
 | `Naming.java` | build paths the way Jellyfin's scanner expects them |
 | `Tidy.java` | sort a folder of loose files into that layout |
+| `Tracks.java` | give every audio and subtitle track the same name in Jellyfin |
 | `Cbz.java` | read ComicInfo.xml out of a comic archive |
 | `Tags.java` | read the tags of an audio file through ffprobe |
 | `Guess.java` | read series, issue, title and year out of a file name |

@@ -29,6 +29,9 @@ public final class Goblin {
               goblin concat <url> <title> --movie     the same, stored as a movie
               goblin tidy input                       sort an inbox into the library
               goblin tidy <folder> --type <kind>      sort one kind of loose files
+              goblin tracks <path> [--apply]          give every audio and subtitle
+                                                      track in a file or a library
+                                                      the same name in Jellyfin
               goblin cbz <folder>                     repack .cbr comics as .cbz
               goblin queue                            work through the queue, one job
                                                       at a time, reading the console
@@ -84,6 +87,11 @@ public final class Goblin {
                   --convert           repack .cbr comics as .cbz before sorting,
                                       so their ComicInfo.xml can be read
                   --log <file>        where the list of moves goes
+
+            Options for 'tracks':
+                  --apply             actually rewrite; without it nothing is written
+                  --lang <code>       language for tracks that do not state one,
+                                      three letters: eng, deu, jpn
 
             Options for 'queue':
                   --delay <seconds>   pause between jobs, to go easy on a service
@@ -162,6 +170,7 @@ public final class Goblin {
             case "concat" -> concat(args);
             case "audio" -> audio(args);
             case "tidy" -> Tidy.run(args);
+            case "tracks" -> Tracks.run(args);
             case "cbz" -> Cbr.run(args);
             case "queue" -> Queue.run(args);
             default -> {

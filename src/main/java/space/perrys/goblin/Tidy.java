@@ -53,7 +53,7 @@ final class Tidy {
             Set.of("epub", "pdf", "mobi", "azw3", "djvu", "fb2");
     private static final Set<String> MUSIC_EXT =
             Set.of("mp3", "m4a", "flac", "opus", "ogg", "wav", "aac", "wma");
-    private static final Set<String> VIDEO_EXT =
+    static final Set<String> VIDEO_EXT =
             Set.of("mkv", "mp4", "avi", "m4v", "mov", "ts", "wmv", "mpg", "mpeg");
 
     /** Moved along with the video they belong to. */
@@ -906,7 +906,7 @@ final class Tidy {
 
     // ------------------------------------------------------------------
 
-    private static List<Path> collect(Path folder, Set<String> extensions) {
+    static List<Path> collect(Path folder, Set<String> extensions) {
         try (var walk = Files.walk(folder)) {
             return walk.filter(Files::isRegularFile)
                     .filter(p -> extensions.contains(extension(p)))
