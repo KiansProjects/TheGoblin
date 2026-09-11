@@ -428,6 +428,13 @@ final class Tracks {
         String ext = (dot < 0) ? "" : name.substring(dot);
         Path tmp = file.resolveSibling(name + ".tracks" + ext);
 
+        // Carried over onto the new file. A library that sorts by "date
+        // added" would otherwise put every shelf this walks back at the top.
+        // Only the modification time can be kept - the creation time on the
+        // file system belongs to the file that was just written and there is
+        // no way to set it back.
+        java.nio.file.attribute.FileTime modified = Files.getLastModifiedTime(file);
+
         List<String> cmd = new ArrayList<>(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                 "-i", file.toString(),
@@ -446,6 +453,7 @@ final class Tracks {
         try {
             Proc.inherit(cmd);
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            Files.setLastModifiedTime(file, modified);
         } finally {
             Files.deleteIfExists(tmp);
         }

@@ -842,6 +842,11 @@ is re-encoded and the picture is untouched, but a second copy is written beside
 the original and moved over: a 16 GiB film needs 16 GiB free while it is
 rewritten. MP4 files come back with `+faststart`.
 
+The modification time is carried over onto the corrected file, so a library
+that sorts by "date added" does not put a whole shelf back at the top. The
+creation time on the file system cannot be kept - it belongs to the file that
+was just written.
+
 Jellyfin reads all of this when it next scans the library. "Automatically
 refresh metadata from the internet: Never" does not stop that - the setting is
 about the databases, not about the file.
