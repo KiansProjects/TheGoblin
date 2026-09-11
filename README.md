@@ -842,11 +842,14 @@ is re-encoded and the picture is untouched, but a second copy is written beside
 the original and moved over: a 16 GiB film needs 16 GiB free while it is
 rewritten. MP4 files come back with `+faststart`.
 
-Modification time, owner, group and mode are carried over onto the corrected
-file: a library that sorts by "date added" does not get a whole shelf back at
-the top, and a run as root does not quietly hand the files to root. The
-creation time on the file system cannot be kept - it belongs to the file that
-was just written.
+Owner, group and mode are carried over onto the corrected file, so a run as
+root does not quietly hand the library to root.
+
+The modification time is not, and that is deliberate. Jellyfin decides whether
+to read a file again by comparing it - `ProbeProvider.HasChanged` asks
+`item.HasChanged(file.LastWriteTimeUtc)` - so a correction that keeps the old
+time is one the server never notices, however often you rescan. It goes on
+showing the track names it cached when the file was imported.
 
 ### Without a Java runtime
 

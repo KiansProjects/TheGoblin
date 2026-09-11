@@ -32,9 +32,10 @@
 # Nothing is written without --apply. A file that needs nothing is never
 # opened for writing. The correction is a remux with -c copy, so nothing is
 # re-encoded, but the file is written once more beside itself and moved over:
-# the largest file has to fit on the disk twice. Modification time, owner,
-# group and mode are carried over, so a run as root does not hand the library
-# to root.
+# the largest file has to fit on the disk twice. Owner, group and mode are
+# carried over, so a run as root does not hand the library to root. The
+# modification time is not: Jellyfin re-reads a file only when that time has
+# changed, so keeping it would hide the correction from the server.
 
 set -uo pipefail
 
@@ -207,10 +208,9 @@ EOF
 
     if ffmpeg -hide_banner -loglevel error -y -i "file:$f" -map 0 -c copy \
             "${args[@]}" "${extra[@]}" "file:$tmp"; then
-        # Onto the new file before it takes the old one's place: a library that
-        # sorts by "date added" would otherwise put every shelf back at the
-        # top, and a rewrite as root would hand the files to root.
-        touch -r "$f" "$tmp" 2>/dev/null
+        # Onto the new file before it takes the old one's place, or a rewrite
+        # as root hands the library to root. Not the modification time -
+        # Jellyfin reads a file again only when that has changed.
         chown --reference="$f" "$tmp" 2>/dev/null
         chmod --reference="$f" "$tmp" 2>/dev/null
         mv -f "$tmp" "$f"

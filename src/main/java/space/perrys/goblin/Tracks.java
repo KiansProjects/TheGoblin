@@ -489,14 +489,15 @@ final class Tracks {
         String ext = (dot < 0) ? "" : name.substring(dot);
         Path tmp = file.resolveSibling(name + ".tracks" + ext);
 
-        // Carried over onto the new file. A library that sorts by "date
-        // added" would otherwise put every shelf this walks back at the top.
-        // Only the modification time can be kept - the creation time on the
-        // file system belongs to the file that was just written and there is
-        // no way to set it back.
-        java.nio.file.attribute.FileTime modified = Files.getLastModifiedTime(file);
-
-        // And so are owner, group and mode. The correction is usually run as
+        // The modification time is deliberately NOT carried over. Jellyfin's
+        // scanner decides whether to read a file again by comparing it
+        // (ProbeProvider.HasChanged, item.HasChanged(file.LastWriteTimeUtc)),
+        // so a correction that keeps the old time is a correction the server
+        // never sees: the track picker goes on showing what it cached at
+        // import. Keeping it looked tidy and quietly broke the only thing
+        // this command is for.
+        //
+        // Owner, group and mode are another matter. The correction is usually run as
         // root on the media host while the files belong to the container's
         // user; a rewrite that quietly hands them to root leaves a library
         // the server can still read and no longer write.
@@ -521,7 +522,6 @@ final class Tracks {
             Proc.inherit(cmd);
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
             restore(file, before);
-            Files.setLastModifiedTime(file, modified);
         } finally {
             Files.deleteIfExists(tmp);
         }
