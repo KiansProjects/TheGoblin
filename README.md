@@ -435,10 +435,17 @@ playlist <url> "Name" --episodes --match-titles --titles --out output/shows
 
 Both sides are folded down to lowercase letters and digits first, so an accent, a curly apostrophe or an em dash where TMDb has a plain hyphen makes no difference; beyond that one character in ten may differ. Season and episode number then come from TMDb, and with `--titles` so does the spelling of the title.
 
+Two spellings get their own handling rather than being paid for out of that budget:
+
+* **Part numbers.** TMDb writes the halves of a two-parter as `Gaining Groudon (1)` and `The Scuffle of Legends (2)`, uploaders usually do not. Folded that is a trailing ` 1`, which costs two characters — so on a budget of one in ten, whether a part matched came down to whether its title happened to be twenty characters long. A title that matches once the part number is dropped is now its own tier, below an exact match and above anything merely similar.
+* **`vs.` against `Versus`**, which TMDb spells out.
+
 Two things are deliberately not guessed at and are listed at the end of the dry run instead:
 
 * a video whose title matches no episode well enough, **or matches two equally well** — two episodes of a long-running show can share a title, and there is no way to tell from the title which one is meant,
 * a video that would land on an episode another video already took.
+
+`--verbose` prints the three episodes each skipped video came closest to, with their scores. Two entries with the same score are a tie — TMDb carries that title twice and nothing in the title says which one is meant.
 
 `--match-titles` needs the episode list, so it cannot be combined with `--no-tmdb`, and it overrides `--from-title`. It costs about one request per season before the first download.
 

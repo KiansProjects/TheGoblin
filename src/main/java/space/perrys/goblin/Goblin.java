@@ -343,6 +343,17 @@ public final class Goblin {
                     (matcher != null) ? "without a match on TMDb" : "without a recognisable number");
             for (String t : unplaced) {
                 System.out.println("  " + t);
+                // Which episodes came closest, and whether two of them tied -
+                // that is the difference between "TMDb spells it differently"
+                // and "TMDb has this title twice".
+                if (verbose && matcher != null) {
+                    for (String line : matcher.nearest(t, 3)) {
+                        System.out.println("      " + line);
+                    }
+                }
+            }
+            if (matcher != null && !verbose) {
+                System.out.println("  (--verbose shows what they came closest to)");
             }
             System.out.println();
         }

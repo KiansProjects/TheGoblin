@@ -7,6 +7,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Finds an episode by its title instead of by a number.
@@ -34,8 +35,20 @@ final class TitleMatch {
     record Ref(int season, int episode, String title) {
     }
 
-    private record Candidate(Ref ref, String folded) {
+    private record Candidate(Ref ref, String folded, String base) {
     }
+
+    /**
+     * TMDb marks the halves of a two-parter as "(1)" and "(2)", uploaders
+     * usually do not. Folded that is a trailing " 1", which costs two
+     * characters of edit distance - so whether a part matched came down to
+     * whether its title was long enough to afford them out of a budget of one
+     * character in ten. It is matched on its own tier instead.
+     */
+    private static final Pattern PART = Pattern.compile("\\s(?:part|teil)?\\s*[1-9]$");
+
+    /** "Haunter vs. Kadabra" against TMDb's "Haunter Versus Kadabra". */
+    private static final Pattern VERSUS = Pattern.compile("(?<=^| )vs(?= |$)");
 
     private final List<Candidate> candidates = new ArrayList<>();
 
@@ -53,8 +66,13 @@ final class TitleMatch {
     void add(int season, int episode, String title) {
         String folded = fold(title);
         if (!folded.isEmpty()) {
-            candidates.add(new Candidate(new Ref(season, episode, title), folded));
+            candidates.add(new Candidate(new Ref(season, episode, title), folded, base(folded)));
         }
+    }
+
+    /** The title without a trailing part number. Unchanged when there is none. */
+    static String base(String folded) {
+        return PART.matcher(folded).replaceAll("").strip();
     }
 
     int size() {
@@ -76,7 +94,7 @@ final class TitleMatch {
         boolean tied = false;
 
         for (Candidate candidate : candidates) {
-            int score = score(parts, candidate.folded());
+            int score = score(parts, candidate);
             if (score > bestScore) {
                 best = candidate.ref();
                 bestScore = score;
@@ -87,6 +105,29 @@ final class TitleMatch {
         }
 
         return (best == null || tied) ? Optional.empty() : Optional.of(best);
+    }
+
+    /**
+     * The best few episodes for a title that did not match, worst reason
+     * first to read. Two entries with the same score are why a video is
+     * skipped even though one of them looks right.
+     */
+    List<String> nearest(String videoTitle, int count) {
+        List<String> parts = parts(videoTitle);
+        List<Candidate> ranked = new ArrayList<>(candidates);
+        ranked.sort((a, b) -> Integer.compare(score(parts, b), score(parts, a)));
+
+        List<String> lines = new ArrayList<>();
+        for (Candidate candidate : ranked.subList(0, Math.min(count, ranked.size()))) {
+            int score = score(parts, candidate);
+            if (score == 0 && !lines.isEmpty()) {
+                break;
+            }
+            lines.add(String.format("S%02dE%02d  %s  (score %d)",
+                    candidate.ref().season(), candidate.ref().episode(),
+                    candidate.ref().title(), score));
+        }
+        return lines;
     }
 
     /**
@@ -119,19 +160,28 @@ final class TitleMatch {
      * The length of the episode title is added so that the longer of two
      * episodes whose titles are prefixes of each other wins.
      */
-    static int score(List<String> parts, String folded) {
+    private static int score(List<String> parts, Candidate candidate) {
+        String folded = candidate.folded();
         int best = 0;
         for (String part : parts) {
             if (part.equals(folded)) {
                 best = Math.max(best, 1_000_000 + folded.length());
-            } else if ((" " + part + " ").contains(" " + folded + " ")) {
+                continue;
+            }
+            // The same title but for a part number on one side only. Below an
+            // exact match, above anything merely similar.
+            if (base(part).equals(candidate.base())) {
+                best = Math.max(best, 900_000 + candidate.base().length());
+                continue;
+            }
+            if ((" " + part + " ").contains(" " + folded + " ")) {
                 best = Math.max(best, 1_000 + folded.length());
-            } else {
-                int allowed = tolerance(folded);
-                int distance = distance(part, folded, allowed);
-                if (distance <= allowed) {
-                    best = Math.max(best, 100 + folded.length() - distance);
-                }
+                continue;
+            }
+            int allowed = tolerance(folded);
+            int distance = distance(part, folded, allowed);
+            if (distance <= allowed) {
+                best = Math.max(best, 100 + folded.length() - distance);
             }
         }
         return best;
@@ -207,7 +257,7 @@ final class TitleMatch {
                 space = true;
             }
         }
-        return out.toString().strip();
+        return VERSUS.matcher(out.toString().strip()).replaceAll("versus");
     }
 
     /** Package-private so the matching can be exercised without TMDb. */
