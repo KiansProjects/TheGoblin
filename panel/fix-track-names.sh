@@ -28,6 +28,14 @@
 #   ./fix-track-names.sh /srv/media/movies            # only report
 #   ./fix-track-names.sh --apply /srv/media/movies /srv/media/shows
 #   ./fix-track-names.sh --apply --lang deu /srv/media/shows/Tatort
+#   ./fix-track-names.sh --apply --name-tracks /srv/media/movies
+#
+# --name-tracks names every track after its channel layout instead of leaving
+# it to the attributes: "Surround 5.1 - English - AAC" rather than
+# "English - AAC - 5.1". Jellyfin puts the title first and drops every
+# attribute the title already contains, so that is the only way the word
+# "Surround" can appear at all. A title that says something the attributes
+# cannot - Commentary, a cut - is kept either way.
 #
 # Nothing is written without --apply. A file that needs nothing is never
 # opened for writing. The correction is a remux with -c copy, so nothing is
@@ -40,15 +48,18 @@
 set -uo pipefail
 
 apply=0
+name_tracks=0
 want_lang=eng
 roots=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --apply)   apply=1 ;;
+        --name-tracks)    name_tracks=1 ;;
+        --no-name-tracks) name_tracks=0 ;;
         --lang)    want_lang=$(printf '%s' "${2:-}" | tr 'A-Z' 'a-z'); shift ;;
         --no-lang) want_lang= ;;
-        -h|--help) sed -n '2,37p' "$0" | cut -c3-; exit 0 ;;
+        -h|--help) sed -n '2,45p' "$0" | cut -c3-; exit 0 ;;
         -*)        echo "Unknown option: $1" >&2; exit 2 ;;
         *)         roots+=("$1") ;;
     esac
@@ -56,7 +67,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ ${#roots[@]} -eq 0 ]; then
-    echo "Usage: $0 [--apply] [--lang <code>|--no-lang] <folder|file> ..." >&2
+    echo "Usage: $0 [--apply] [--lang <code>|--no-lang] [--name-tracks] <folder|file> ..." >&2
     exit 2
 fi
 
@@ -123,6 +134,21 @@ repeats_only() {
     [ "$saw" = 1 ]
 }
 
+# The name a track would carry if it were named after what it is. Empty for a
+# track there is no obvious word for - a subtitle, or a layout nobody names.
+canonical() {
+    local channels=$1 layout=$2 plain
+    case "$channels" in
+        1) printf 'Mono';   return ;;
+        2) printf 'Stereo'; return ;;
+    esac
+    [ -z "$layout" ] && return
+    # ffprobe writes 5.1(side) for one of the two ways to arrange six
+    # speakers. That distinction belongs in a codec, not in a track name.
+    plain=${layout%%(*}
+    case "$plain" in *.*) printf 'Surround %s' "$plain" ;; esac
+}
+
 fix_file() {
     local f=$1 probe line
     probe=$(ffprobe -v error \
@@ -162,7 +188,7 @@ fix_file() {
         # 1. The title, in the order Jellyfin resolves it.
         local shown=$title
         [ -z "$shown" ] && shown=$name
-        local drop= why=
+        local redundant= junk= why= wanted= key spelling
         if [ -n "$shown" ]; then
             local derived="$filler $(words "$layout") $(words "$codec") $(words "$profile") $(words "$lang")"
             case "$channels" in
@@ -170,15 +196,31 @@ fix_file() {
                 *) derived="$derived $channels.0 $((channels - 1)).1" ;;
             esac
             if repeats_only "$shown" "$derived"; then
-                drop=1; why="\"$shown\" repeats what is derived anyway"
+                redundant=1; why="\"$shown\" repeats what is derived anyway"
             fi
         elif [ -n "$handler" ] \
-             && [ "$(printf '%s' "$handler" | tr 'A-Z' 'a-z')" != "$(default_handler "$type")" ]; then
-            drop=1; why="\"$handler\" is the container's handler name"
+             && [ "${handler,,}" != "$(default_handler "$type")" ]; then
+            junk=1; why="\"$handler\" is the container's handler name"
         fi
 
-        if [ -n "$drop" ]; then
-            local key spelling
+        [ "$name_tracks" = 1 ] && wanted=$(canonical "$channels" "$layout")
+
+        if [ -n "$shown" ] && [ -z "$redundant" ]; then
+            # A name the attributes cannot give - Commentary, a cut, an audio
+            # description. Left as it is, scheme or no scheme: replacing it
+            # with "Surround 5.1" throws away the only thing worth reading.
+            :
+        elif [ -n "$wanted" ]; then
+            if [ "$title" != "$wanted" ] || [ -n "$name" ] || [ -n "$junk" ]; then
+                args+=(-metadata:s:"$idx" "title=$wanted")
+                for key in name handler_name; do
+                    for spelling in $(spellings "$line" "$key"); do
+                        args+=(-metadata:s:"$idx" "$spelling=")
+                    done
+                done
+                notes+=("$(printf '%-8s %2s  title -> "%s"' "$type" "$idx" "$wanted")")
+            fi
+        elif [ -n "$redundant" ] || [ -n "$junk" ]; then
             for key in title name handler_name; do
                 for spelling in $(spellings "$line" "$key"); do
                     args+=(-metadata:s:"$idx" "$spelling=")

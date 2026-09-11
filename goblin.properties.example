@@ -91,3 +91,14 @@ sftp.base = /srv/media
 # this line says otherwise, and --lang on a single run beats both.
 # Present but empty means: leave the language alone.
 # track.language = eng
+
+# Name every audio track after its channel layout instead of leaving the line
+# to the derived attributes:
+#
+#   layout   Stereo - English - AAC - Standard
+#   (unset)  English - AAC - Stereo - Standard
+#
+# The word "Surround" can only reach the line this way - Jellyfin puts the
+# title first and derives the rest itself, and what it derives is "5.1".
+# A title that says something of its own is kept either way.
+# track.titles = layout

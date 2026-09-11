@@ -101,6 +101,10 @@ public final class Goblin {
                                       track.language from goblin.properties,
                                       and without that eng. Every download
                                       does this by itself.
+                  --name-tracks       name every track after its channel
+                                      layout: "Surround 5.1 - English - AAC"
+                                      instead of "English - AAC - 5.1".
+                                      track.titles = layout sets it for good
 
             Options for 'queue':
                   --delay <seconds>   pause between jobs, to go easy on a service

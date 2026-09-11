@@ -95,17 +95,21 @@ final class Tracks {
 
     static int run(String[] args) throws Exception {
         if (args.length < 2) {
-            System.err.println("Usage: goblin tracks <path> [--apply] [--lang <code>]");
+            System.err.println("Usage: goblin tracks <path> [--apply] [--lang <code>] "
+                    + "[--name-tracks]");
             return 2;
         }
 
         Path where = Path.of(args[1]);
         boolean apply = false;
+        boolean nameTracks = canonicalTitles();
         String language = null;
 
         for (int i = 2; i < args.length; i++) {
             switch (args[i]) {
                 case "--apply" -> apply = true;
+                case "--name-tracks" -> nameTracks = true;
+                case "--no-name-tracks" -> nameTracks = false;
                 case "--lang" -> {
                     if (i + 1 >= args.length) {
                         System.err.println("--lang needs a code, for example --lang eng.");
@@ -157,7 +161,7 @@ final class Tracks {
         int unreadable = 0;
 
         for (Path file : files) {
-            Plan plan = plan(file, language);
+            Plan plan = plan(file, language, nameTracks);
             if (plan == null) {
                 unreadable++;
                 continue;
@@ -240,7 +244,7 @@ final class Tracks {
      * a cosmetic detail would be the worse trade.
      */
     static void normalise(Path file, String language) {
-        Plan plan = plan(file, language);
+        Plan plan = plan(file, language, canonicalTitles());
         if (plan == null || plan.changes().isEmpty()) {
             return;
         }
@@ -266,6 +270,15 @@ final class Tracks {
      * setting is a deliberate "leave the language alone", so it is honoured
      * as null rather than replaced by the default.
      */
+    /**
+     * Whether tracks are named after their channel layout instead of left to
+     * the attributes alone. {@code track.titles = layout} in
+     * goblin.properties; anything else, or nothing, keeps the plain line.
+     */
+    static boolean canonicalTitles() {
+        return "layout".equalsIgnoreCase(String.valueOf(Limits.property("track.titles")));
+    }
+
     static String configuredLanguage() {
         String configured = Limits.property("track.language");
         if (configured == null) {
@@ -277,7 +290,7 @@ final class Tracks {
     // ------------------------------------------------------------------
 
     /** @return what the file needs, or null when ffprobe cannot read it */
-    private static Plan plan(Path file, String language) {
+    private static Plan plan(Path file, String language, boolean nameTracks) {
         List<Object> streams;
         try {
             String json = Proc.capture(List.of(
@@ -325,14 +338,25 @@ final class Tracks {
             String handler = tag(tags, "handler_name");
             String fromTags = blank(title) ? name : title;
 
-            if (!blank(fromTags)) {
-                String repeated = repetition(fromTags, stream);
-                if (repeated != null) {
-                    changes.add(clearTitle(label, index, tags,
-                            "\"" + fromTags + "\" repeats " + repeated));
+            String repeated = blank(fromTags) ? null : repetition(fromTags, stream);
+            boolean junkHandler = blank(fromTags) && !blank(handler)
+                    && !handler.equalsIgnoreCase(DEFAULT_HANDLER.get(type));
+            String wanted = nameTracks ? canonical(stream) : null;
+
+            if (!blank(fromTags) && repeated == null) {
+                // A name the attributes cannot give - Commentary, a cut, an
+                // audio description. Left exactly as it is, with or without
+                // the naming scheme: replacing it with "Surround 5.1" would
+                // throw away the only thing on the track worth reading.
+                nothingToDo();
+            } else if (wanted != null) {
+                if (!wanted.equals(title) || !blank(name) || junkHandler) {
+                    changes.add(setTitle(label, index, tags, wanted));
                 }
-            } else if (!blank(handler)
-                    && !handler.equalsIgnoreCase(DEFAULT_HANDLER.get(type))) {
+            } else if (repeated != null) {
+                changes.add(clearTitle(label, index, tags,
+                        "\"" + fromTags + "\" repeats " + repeated));
+            } else if (junkHandler) {
                 changes.add(clearTitle(label, index, tags,
                         "\"" + handler + "\" is the container's handler name"));
             }
@@ -366,6 +390,50 @@ final class Tracks {
         }
 
         return new Plan(file, changes, notes);
+    }
+
+    /**
+     * The name a track would carry if it were named after what it is.
+     *
+     * Jellyfin puts the title first and drops every attribute the title
+     * already contains, so "Surround 5.1" swallows the channel layout and the
+     * line reads "Surround 5.1 - English - AAC". That is the only way to get
+     * the word "Surround" into it at all - the attributes themselves are
+     * whatever ffprobe reports, and ffprobe reports "5.1".
+     *
+     * @return null for a track there is no obvious name for - a subtitle, or
+     *         a layout nobody has a word for. Those keep the plain line.
+     */
+    private static String canonical(Map<String, Object> stream) {
+        String layout = Json.str(stream, "channel_layout");
+        int channels = (int) Json.num(stream, "channels", 0);
+
+        if (channels == 1) {
+            return "Mono";
+        }
+        if (channels == 2) {
+            return "Stereo";
+        }
+        if (blank(layout)) {
+            return null;
+        }
+        // ffprobe writes 5.1(side) for one of the two ways to arrange six
+        // speakers. The distinction belongs in a codec, not in a track name.
+        String plain = layout.replaceAll("\\(.*\\)", "").strip();
+        return plain.contains(".") ? "Surround " + plain : null;
+    }
+
+    /** Names the track after what it is, and clears whatever competed. */
+    private static Change setTitle(String label, int index,
+                                   Map<String, Object> tags, String title) {
+        List<String> args = new ArrayList<>(List.of("-metadata:s:" + index, "title=" + title));
+        for (String key : List.of("name", "handler_name")) {
+            for (String spelling : spellings(tags, key)) {
+                args.add("-metadata:s:" + index);
+                args.add(spelling + "=");
+            }
+        }
+        return new Change("title", label + "  title -> \"" + title + "\"", args);
     }
 
     /**
@@ -508,6 +576,10 @@ final class Tracks {
             out.add(key);
         }
         return out;
+    }
+
+    /** Reads better than an empty branch, and says the branch is deliberate. */
+    private static void nothingToDo() {
     }
 
     private static boolean blank(String text) {

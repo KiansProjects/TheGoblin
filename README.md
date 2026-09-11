@@ -854,6 +854,30 @@ to read a file again by comparing it - `ProbeProvider.HasChanged` asks
 time is one the server never notices, however often you rescan. It goes on
 showing the track names it cached when the file was imported.
 
+### Naming the tracks instead
+
+Jellyfin seeds the line with the title and appends only the attributes the
+title does not already contain (`new StringBuilder(Title)` in
+`MediaStream.DisplayTitle`), so anything written into the file lands in front.
+The third position is not text either - it is `ChannelLayout` as ffprobe
+reports it, and ffprobe reports `5.1`. `English - AAC - Surround 5.1` is
+therefore not reachable from a file at all. This is:
+
+```
+Stereo - English - AAC - Standard
+Surround 5.1 - English - AAC
+Mono - German - AAC
+```
+
+`--name-tracks` names every track after its channel layout rather than leaving
+it to the attributes, `track.titles = layout` in `goblin.properties` does the
+same for downloads. A title that says something the attributes cannot -
+`Commentary`, the name of a cut - is kept either way and never overwritten,
+and a track with no word for its layout keeps the plain line.
+
+Both schemes are even. Pick one and stay with it: run with the switch and
+without it over the same library and the files disagree.
+
 ### Without a Java runtime
 
 `panel/fix-track-names.sh` does the same for a library on a machine that has
