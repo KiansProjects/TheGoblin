@@ -435,10 +435,14 @@ playlist <url> "Name" --episodes --match-titles --titles --out output/shows
 
 Both sides are folded down to lowercase letters and digits first, so an accent, a curly apostrophe or an em dash where TMDb has a plain hyphen makes no difference; beyond that one character in ten may differ. Season and episode number then come from TMDb, and with `--titles` so does the spelling of the title.
 
-Two spellings get their own handling rather than being paid for out of that budget:
+Four differences get their own handling rather than being paid for out of that budget, because a short title cannot afford them and a long one can — which is length deciding the match, not meaning:
 
-* **Part numbers.** TMDb writes the halves of a two-parter as `Gaining Groudon (1)` and `The Scuffle of Legends (2)`, uploaders usually do not. Folded that is a trailing ` 1`, which costs two characters — so on a budget of one in ten, whether a part matched came down to whether its title happened to be twenty characters long. A title that matches once the part number is dropped is now its own tier, below an exact match and above anything merely similar.
+* **Part numbers.** TMDb writes the halves of a two-parter as `Gaining Groudon (1)` and `The Scuffle of Legends (2)`, uploaders usually do not. Folded that is a trailing ` 1`, two characters.
+* **A leading article.** `The Tent Situation` against TMDb's `A Tent Situation`, `Chikorita Rescue` against `The Chikorita Rescue`. Three characters for a word that says nothing about which episode is meant.
+* **One word of two spellings.** `Sick Days` against `Sick Daze`, `Play with Fire` against `Playing with Fire` — every other word identical, and the odd one out either within two characters or the start of the longer. Everything else matching exactly is what makes this safe: `Round One - Begin!` against `Round Two - Begin!` is three characters apart with no shared start, and stays out.
 * **`vs.` against `Versus`**, which TMDb spells out.
+
+Each is a tier of its own, in that order, below an exact match and above anything merely similar. The tie rule applies to all of them: two episodes that differ only by their article are still two episodes, and a video naming neither is reported rather than filed by coin flip.
 
 Two things are deliberately not guessed at and are listed at the end of the dry run instead:
 
