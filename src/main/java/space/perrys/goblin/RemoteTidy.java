@@ -325,6 +325,15 @@ final class RemoteTidy {
             }
 
             for (Sftp.Entry entry : entries) {
+                // A zip built on a Mac carries a __MACOSX folder of "._Name"
+                // companions, one per real file and with the same extension.
+                // Sorting those as comics or books would file a few kilobytes
+                // of Finder metadata next to the thing it belongs to. The
+                // local walk has always skipped them; this one had not.
+                if (entry.name().startsWith(".") || "__MACOSX".equals(entry.name())) {
+                    continue;
+                }
+
                 String path = dir + "/" + entry.name();
                 if (entry.directory()) {
                     queue.add(path);
