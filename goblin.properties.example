@@ -83,3 +83,10 @@ sftp.base = /srv/media
 # host and port is trusted. Only sensible on a network you control, and
 # the hash above is the better answer. Ignored when the hash is set.
 # sftp.insecure = false
+
+# Language of the audio tracks in what you download, three letters: eng, deu,
+# jpn. Written into every finished file, because a video off YouTube states no
+# language at all and Jellyfin then shows one track differently from the rest.
+# It cannot be read off the video, so it is set here rather than guessed.
+# Leave it empty if what you fetch is not all in one language.
+track.language = eng

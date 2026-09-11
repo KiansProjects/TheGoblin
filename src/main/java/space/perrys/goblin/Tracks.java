@@ -69,8 +69,11 @@ final class Tracks {
     private static final Set<String> FILLER = Set.of(
             "audio", "track", "tracks", "sound", "surround", "channel", "channels", "ch", "stream");
 
-    /** One correction to one stream, both as a sentence and as ffmpeg arguments. */
-    private record Change(String line, List<String> args) {
+    /**
+     * One correction to one stream: a word for the summary at the end of a
+     * download, a sentence for the listing, and the ffmpeg arguments.
+     */
+    private record Change(String kind, String line, List<String> args) {
     }
 
     /** Everything one file needs. Empty {@code changes} means: do not touch it. */
@@ -105,6 +108,12 @@ final class Tracks {
                     return 2;
                 }
             }
+        }
+
+        if (language == null) {
+            // The same setting the download path uses, so a library-wide
+            // answer only has to be given once.
+            language = Limits.property("track.language");
         }
 
         if (!Files.exists(where)) {
@@ -206,6 +215,44 @@ final class Tracks {
         return (failed > 0) ? 1 : 0;
     }
 
+    /**
+     * Gives one finished file the same track names as the rest of the library.
+     *
+     * Called at the end of every download, because that is where the uneven
+     * ones come from: a file off YouTube carries Google's handler name as its
+     * track title and states no language at all.
+     *
+     * The language cannot be read off the video, so it comes from
+     * {@code track.language} in goblin.properties - configuration rather than
+     * a flag, for the reason the limits beside it are: it is the same answer
+     * on every run, and a flag you have to remember is a flag you forget.
+     * Unset, the language is left alone and only the title is corrected.
+     *
+     * Silent when there is nothing to do, and never fatal. A file that cannot
+     * be read or rewritten is kept as it is - losing a finished download over
+     * a cosmetic detail would be the worse trade.
+     */
+    static void normalise(Path file) {
+        Plan plan = plan(file, Limits.property("track.language"));
+        if (plan == null || plan.changes().isEmpty()) {
+            return;
+        }
+
+        List<String> kinds = new ArrayList<>();
+        for (Change change : plan.changes()) {
+            if (!kinds.contains(change.kind())) {
+                kinds.add(change.kind());
+            }
+        }
+
+        try {
+            rewrite(plan);
+            System.out.println("    track names: " + String.join(", ", kinds));
+        } catch (IOException | InterruptedException e) {
+            System.out.println("    track names left as they are: " + e.getMessage());
+        }
+    }
+
     // ------------------------------------------------------------------
 
     /** @return what the file needs, or null when ffprobe cannot read it */
@@ -272,7 +319,8 @@ final class Tracks {
                 if (language == null) {
                     notes.add(label + "  no language (say --lang <code> to set one)");
                 } else {
-                    changes.add(new Change(label + "  language -> " + language,
+                    changes.add(new Change("language " + language,
+                            label + "  language -> " + language,
                             List.of("-metadata:s:" + index, "language=" + language)));
                 }
             }
@@ -287,7 +335,7 @@ final class Tracks {
                 args.add("-disposition:" + index);
                 args.add(index == audio.get(0) ? "default" : "0");
             }
-            changes.add(new Change(
+            changes.add(new Change("default track",
                     String.format("%-8s %2d", "audio", audio.get(0))
                             + "  " + audioDefaults.size() + " tracks marked default -> only this one",
                     args));
@@ -304,7 +352,7 @@ final class Tracks {
      * one value Jellyfin knows to ignore.
      */
     private static Change clearTitle(String label, int index, String why) {
-        return new Change(label + "  title -> none, " + why,
+        return new Change("title", label + "  title -> none, " + why,
                 List.of("-metadata:s:" + index, "title=",
                         "-metadata:s:" + index, "name=",
                         "-metadata:s:" + index, "handler_name="));

@@ -91,7 +91,9 @@ public final class Goblin {
             Options for 'tracks':
                   --apply             actually rewrite; without it nothing is written
                   --lang <code>       language for tracks that do not state one,
-                                      three letters: eng, deu, jpn
+                                      three letters: eng, deu, jpn. Without it
+                                      track.language from goblin.properties.
+                                      Every download runs this by itself.
 
             Options for 'queue':
                   --delay <seconds>   pause between jobs, to go easy on a service
@@ -468,6 +470,7 @@ public final class Goblin {
                 String stem = fileName.substring(0, fileName.lastIndexOf('.'));
                 YtDlp.download("https://youtu.be/" + entries.get(i)[0],
                         target.getParent().resolve(stem), format, container);
+                Tracks.normalise(target);
                 done++;
 
                 // A failed upload leaves the file on disk. Carrying on through a
@@ -613,6 +616,7 @@ public final class Goblin {
         System.out.println("Downloading video ...");
         String stem = fileName.substring(0, fileName.lastIndexOf('.'));
         YtDlp.download(url, movieDir.resolve(stem), format, container);
+        Tracks.normalise(movieDir.resolve(fileName));
 
         if (tmdb != null && film != null) {
             tmdb.downloadArtwork(film, movieDir);
@@ -1114,6 +1118,8 @@ public final class Goblin {
             }
         }
 
+        Tracks.normalise(target);
+
         // Artwork travels too, otherwise the movie folder arrives on the
         // media server without its poster.
         uploadTree(sftp, targetDir, keepLocal);
@@ -1455,6 +1461,7 @@ public final class Goblin {
                         Naming.episodeFile(name, season, startEpisode + i, c.title(), container));
                 Ffmpeg.cut(source, c, target, reencode);
                 System.out.println("  " + target.getFileName());
+                Tracks.normalise(target);
                 uploadIfConfigured(sftp, out, target, keepLocal);
             }
 

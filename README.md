@@ -846,6 +846,29 @@ Jellyfin reads all of this when it next scans the library. "Automatically
 refresh metadata from the internet: Never" does not stop that - the setting is
 about the databases, not about the file.
 
+### Downloads do it on their own
+
+Every finished download goes through the same correction before it is uploaded
+- `shows`, `movie`, `concat` and `playlist --episodes` alike - so the library
+stays even without anyone remembering a flag. A file that needs nothing is not
+rewritten, but a file off YouTube always does: it carries Google's handler name
+as its track title.
+
+The one thing that cannot be read off a video is its language, so it is
+configured rather than guessed:
+
+```
+track.language = eng
+```
+
+in `goblin.properties`, next to the limits and for the same reason. Left empty,
+the language is not touched and only the title is corrected. `goblin tracks`
+falls back to the same setting when it is run without `--lang`.
+
+This costs one extra pass over each finished file - `-c copy`, nothing
+re-encoded, but the file is written once more. Next to downloading it, that is
+not much; on the cut path it is one more copy per episode.
+
 ## Comic metadata and covers
 
 Comics have no TMDb — that database is film and television. The one the scene's
