@@ -87,6 +87,7 @@ sftp.base = /srv/media
 # Language of the audio tracks in what you download, three letters: eng, deu,
 # jpn. Written into every finished file, because a video off YouTube states no
 # language at all and Jellyfin then shows one track differently from the rest.
-# It cannot be read off the video, so it is set here rather than guessed.
-# Leave it empty if what you fetch is not all in one language.
-track.language = eng
+# It cannot be read off the video, so it is set rather than guessed: eng unless
+# this line says otherwise, and --lang on a single run beats both.
+# Present but empty means: leave the language alone.
+# track.language = eng

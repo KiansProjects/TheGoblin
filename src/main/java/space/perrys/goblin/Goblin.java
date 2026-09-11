@@ -69,6 +69,12 @@ public final class Goblin {
                                       (search window, default 5)
                   --reencode          cut exactly instead of rounding to keyframes
                   --keep              keep the whole video after cutting
+                  --lang <code>       language of the audio, three letters,
+                                      written into every finished file.
+                                      Default eng, or track.language from
+                                      goblin.properties. Also understood by
+                                      'movie', 'concat' and 'playlist
+                                      --episodes'
                   --upload            upload finished files over SFTP
                                       (credentials in goblin.properties)
                   --keep-local        keep the local copy after the upload
@@ -90,10 +96,11 @@ public final class Goblin {
 
             Options for 'tracks':
                   --apply             actually rewrite; without it nothing is written
-                  --lang <code>       language for tracks that do not state one,
-                                      three letters: eng, deu, jpn. Without it
-                                      track.language from goblin.properties.
-                                      Every download runs this by itself.
+                  --lang <code>       language for tracks that do not state
+                                      one, three letters. Without it
+                                      track.language from goblin.properties,
+                                      and without that eng. Every download
+                                      does this by itself.
 
             Options for 'queue':
                   --delay <seconds>   pause between jobs, to go easy on a service
@@ -248,7 +255,8 @@ public final class Goblin {
                                 boolean matchTitles,
                                 boolean overwrite, boolean dryRun, boolean verbose,
                                 boolean upload, boolean keepLocal,
-                                String format, String container) throws Exception {
+                                String format, String container,
+                                String language) throws Exception {
 
         requireTools(!dryRun);
 
@@ -470,7 +478,7 @@ public final class Goblin {
                 String stem = fileName.substring(0, fileName.lastIndexOf('.'));
                 YtDlp.download("https://youtu.be/" + entries.get(i)[0],
                         target.getParent().resolve(stem), format, container);
-                Tracks.normalise(target);
+                Tracks.normalise(target, language);
                 done++;
 
                 // A failed upload leaves the file on disk. Carrying on through a
@@ -542,10 +550,12 @@ public final class Goblin {
         boolean keepLocal = false;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
+        String language = Tracks.configuredLanguage();
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
                 case "-o", "--out" -> out = Path.of(args[++i]);
+                case "--lang" -> language = args[++i];
                 case "--upload" -> upload = true;
                 case "--keep-local" -> keepLocal = true;
                 case "--year" -> year = Integer.valueOf(args[++i]);
@@ -616,7 +626,7 @@ public final class Goblin {
         System.out.println("Downloading video ...");
         String stem = fileName.substring(0, fileName.lastIndexOf('.'));
         YtDlp.download(url, movieDir.resolve(stem), format, container);
-        Tracks.normalise(movieDir.resolve(fileName));
+        Tracks.normalise(movieDir.resolve(fileName), language);
 
         if (tmdb != null && film != null) {
             tmdb.downloadArtwork(film, movieDir);
@@ -931,6 +941,7 @@ public final class Goblin {
         boolean useTmdb = true;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
+        String language = Tracks.configuredLanguage();
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
@@ -944,6 +955,7 @@ public final class Goblin {
                 case "--max-overlap" -> maxOverlap = Double.parseDouble(args[++i]);
                 case "--dry-run" -> dryRun = true;
                 case "--keep-parts" -> keepParts = true;
+                case "--lang" -> language = args[++i];
                 case "--upload" -> upload = true;
                 case "--keep-local" -> keepLocal = true;
                 case "--movie" -> movieMode = true;
@@ -1118,7 +1130,7 @@ public final class Goblin {
             }
         }
 
-        Tracks.normalise(target);
+        Tracks.normalise(target, language);
 
         // Artwork travels too, otherwise the movie folder arrives on the
         // media server without its poster.
@@ -1170,10 +1182,12 @@ public final class Goblin {
         boolean verbose = false;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
+        String language = Tracks.configuredLanguage();
 
         for (int i = 3; i < args.length; i++) {
             switch (args[i]) {
                 case "-o", "--out" -> out = args[++i];
+                case "--lang" -> language = args[++i];
                 case "-s", "--season" -> firstSeason = Integer.parseInt(args[++i]);
                 case "--extra" -> extra = args[++i];
                 case "--episodes" -> episodeMode = true;
@@ -1226,7 +1240,8 @@ public final class Goblin {
         if (episodeMode) {
             return episodes(entries, name, Path.of(out), firstSeason, startEpisode,
                     year, tmdbId, useTmdb, withTitles, fromTitle, matchTitles,
-                    overwrite, dryRun, verbose, upload, keepLocal, format, container);
+                    overwrite, dryRun, verbose, upload, keepLocal, format, container,
+                    language);
         }
 
         System.out.printf("%d videos in the playlist%n%n", entries.size());
@@ -1276,6 +1291,7 @@ public final class Goblin {
         boolean verbose = false;
         String format = YtDlp.FORMAT_H264;
         String container = "mp4";
+        String language = Tracks.configuredLanguage();
         Path chapterFile = null;
         double offset = 0;
         double snapWindow = 0;
@@ -1300,6 +1316,7 @@ public final class Goblin {
                     container = "mkv";
                 }
                 case "--format", "-f" -> format = args[++i];
+                case "--lang" -> language = args[++i];
                 case "--chapters" -> chapterFile = Path.of(args[++i]);
                 case "--offset" -> offset = Double.parseDouble(args[++i]);
                 case "--upload" -> upload = true;
@@ -1461,7 +1478,7 @@ public final class Goblin {
                         Naming.episodeFile(name, season, startEpisode + i, c.title(), container));
                 Ffmpeg.cut(source, c, target, reencode);
                 System.out.println("  " + target.getFileName());
-                Tracks.normalise(target);
+                Tracks.normalise(target, language);
                 uploadIfConfigured(sftp, out, target, keepLocal);
             }
 

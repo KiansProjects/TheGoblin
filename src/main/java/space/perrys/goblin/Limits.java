@@ -66,6 +66,14 @@ final class Limits {
         return value(file, key);
     }
 
+    /**
+     * Whether the key is in the file at all, empty value included. Lets a
+     * setting distinguish "not configured" from "configured to nothing".
+     */
+    static boolean hasKey(String key) {
+        return file.getProperty(key) != null;
+    }
+
     static String rate() {
         return rate;
     }

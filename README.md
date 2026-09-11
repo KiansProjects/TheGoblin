@@ -842,10 +842,24 @@ is re-encoded and the picture is untouched, but a second copy is written beside
 the original and moved over: a 16 GiB film needs 16 GiB free while it is
 rewritten. MP4 files come back with `+faststart`.
 
-The modification time is carried over onto the corrected file, so a library
-that sorts by "date added" does not put a whole shelf back at the top. The
+Modification time, owner, group and mode are carried over onto the corrected
+file: a library that sorts by "date added" does not get a whole shelf back at
+the top, and a run as root does not quietly hand the files to root. The
 creation time on the file system cannot be kept - it belongs to the file that
 was just written.
+
+### Without a Java runtime
+
+`panel/fix-track-names.sh` does the same for a library on a machine that has
+ffmpeg but no Java - which is what a media server usually is.
+
+```
+./fix-track-names.sh /srv/media/movies
+./fix-track-names.sh --apply --lang eng /srv/media/movies /srv/media/shows
+```
+
+Same rules, same defaults, same dry run. `Tracks.java` is the reference and
+this is the copy that travels; if they ever disagree, the Java one is right.
 
 Jellyfin reads all of this when it next scans the library. "Automatically
 refresh metadata from the internet: Never" does not stop that - the setting is
@@ -859,16 +873,25 @@ stays even without anyone remembering a flag. A file that needs nothing is not
 rewritten, but a file off YouTube always does: it carries Google's handler name
 as its track title.
 
-The one thing that cannot be read off a video is its language, so it is
-configured rather than guessed:
+The one thing that cannot be read off a video is its language, so it is set
+rather than guessed. English unless told otherwise, because that is what nearly
+everything fetched here is in:
 
 ```
-track.language = eng
+goblin shows <url> "Name" --lang deu
 ```
 
-in `goblin.properties`, next to the limits and for the same reason. Left empty,
-the language is not touched and only the title is corrected. `goblin tracks`
-falls back to the same setting when it is run without `--lang`.
+`shows`, `movie`, `concat` and `playlist --episodes` all take it. A library
+whose usual is a different language says so once in `goblin.properties`:
+
+```
+track.language = deu
+```
+
+`--lang` on a single run beats that line, and the line beats the English
+default. Present but empty means "leave the language alone" - for a library
+that mixes languages, where a wrong label is worse than none. `goblin tracks`
+falls back to the same setting.
 
 This costs one extra pass over each finished file - `-c copy`, nothing
 re-encoded, but the file is written once more. Next to downloading it, that is

@@ -58,6 +58,16 @@ final class Tracks {
     private static final Map<String, String> DEFAULT_HANDLER =
             Map.of("audio", "SoundHandler", "subtitle", "SubtitleHandler");
 
+    /**
+     * What a track is taken to be in when nothing says otherwise.
+     *
+     * Nearly everything that arrives here comes off an English-language
+     * channel, and a library where most tracks read "English - AAC - Stereo"
+     * and a few read "AAC - Stereo" is the unevenness this exists to remove.
+     * A run that fetches something else says so with --lang.
+     */
+    private static final String DEFAULT_LANGUAGE = "eng";
+
     /** Language codes that mean "not stated". Jellyfin drops these too. */
     private static final Set<String> UNSET_LANGUAGE = Set.of("", "und", "undefined", "unknown");
 
@@ -111,9 +121,7 @@ final class Tracks {
         }
 
         if (language == null) {
-            // The same setting the download path uses, so a library-wide
-            // answer only has to be given once.
-            language = Limits.property("track.language");
+            language = configuredLanguage();
         }
 
         if (!Files.exists(where)) {
@@ -222,18 +230,17 @@ final class Tracks {
      * ones come from: a file off YouTube carries Google's handler name as its
      * track title and states no language at all.
      *
-     * The language cannot be read off the video, so it comes from
-     * {@code track.language} in goblin.properties - configuration rather than
-     * a flag, for the reason the limits beside it are: it is the same answer
-     * on every run, and a flag you have to remember is a flag you forget.
-     * Unset, the language is left alone and only the title is corrected.
+     * The language cannot be read off the video. It comes from --lang when a
+     * run fetches something other than the usual, from
+     * {@code track.language} in goblin.properties when a library has a
+     * different usual, and otherwise from {@link #DEFAULT_LANGUAGE}.
      *
      * Silent when there is nothing to do, and never fatal. A file that cannot
      * be read or rewritten is kept as it is - losing a finished download over
      * a cosmetic detail would be the worse trade.
      */
-    static void normalise(Path file) {
-        Plan plan = plan(file, Limits.property("track.language"));
+    static void normalise(Path file, String language) {
+        Plan plan = plan(file, language);
         if (plan == null || plan.changes().isEmpty()) {
             return;
         }
@@ -253,6 +260,20 @@ final class Tracks {
         }
     }
 
+    /**
+     * The language to write when the command line does not name one:
+     * {@code track.language} from goblin.properties, else English. An empty
+     * setting is a deliberate "leave the language alone", so it is honoured
+     * as null rather than replaced by the default.
+     */
+    static String configuredLanguage() {
+        String configured = Limits.property("track.language");
+        if (configured == null) {
+            return Limits.hasKey("track.language") ? null : DEFAULT_LANGUAGE;
+        }
+        return configured.toLowerCase(Locale.ROOT);
+    }
+
     // ------------------------------------------------------------------
 
     /** @return what the file needs, or null when ffprobe cannot read it */
@@ -263,7 +284,10 @@ final class Tracks {
                     "ffprobe", "-v", "error",
                     "-print_format", "json",
                     "-show_streams",
-                    file.toString()));
+                    // Your film is in a folder called "Obi-Wan Kenobi: The
+                    // Patterson Cut". Without the prefix ffmpeg reads
+                    // everything before that colon as a protocol name.
+                    "file:" + file));
             streams = Json.array(Json.object(Json.parse(json)).get("streams"));
         } catch (IOException | InterruptedException e) {
             return null;
@@ -412,6 +436,43 @@ final class Tracks {
         return out;
     }
 
+    /** Null on a file system that does not have owners and modes. */
+    private static java.nio.file.attribute.PosixFileAttributes posix(Path file) {
+        try {
+            return Files.readAttributes(file, java.nio.file.attribute.PosixFileAttributes.class);
+        } catch (IOException | UnsupportedOperationException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Puts owner, group and mode of the file that was replaced back on the one
+     * that replaced it. Only what actually differs is set: changing the owner
+     * needs root, and a run that is not root should not report a failure for
+     * something it was never going to have to change.
+     */
+    private static void restore(Path file, java.nio.file.attribute.PosixFileAttributes before) {
+        java.nio.file.attribute.PosixFileAttributes now = posix(file);
+        if (before == null || now == null) {
+            return;
+        }
+        try {
+            if (!now.permissions().equals(before.permissions())) {
+                Files.setPosixFilePermissions(file, before.permissions());
+            }
+            var view = Files.getFileAttributeView(
+                    file, java.nio.file.attribute.PosixFileAttributeView.class);
+            if (!now.group().equals(before.group())) {
+                view.setGroup(before.group());
+            }
+            if (!now.owner().equals(before.owner())) {
+                view.setOwner(before.owner());
+            }
+        } catch (IOException e) {
+            System.out.println("    owner and mode could not be carried over: " + e.getMessage());
+        }
+    }
+
     private static boolean blank(String text) {
         return text == null || text.isBlank();
     }
@@ -435,9 +496,15 @@ final class Tracks {
         // no way to set it back.
         java.nio.file.attribute.FileTime modified = Files.getLastModifiedTime(file);
 
+        // And so are owner, group and mode. The correction is usually run as
+        // root on the media host while the files belong to the container's
+        // user; a rewrite that quietly hands them to root leaves a library
+        // the server can still read and no longer write.
+        java.nio.file.attribute.PosixFileAttributes before = posix(file);
+
         List<String> cmd = new ArrayList<>(List.of(
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-i", file.toString(),
+                "-i", "file:" + file,
                 "-map", "0", "-c", "copy"));
         for (Change change : plan.changes()) {
             cmd.addAll(change.args());
@@ -448,11 +515,12 @@ final class Tracks {
             cmd.add("-movflags");
             cmd.add("+faststart");
         }
-        cmd.add(tmp.toString());
+        cmd.add("file:" + tmp);
 
         try {
             Proc.inherit(cmd);
             Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            restore(file, before);
             Files.setLastModifiedTime(file, modified);
         } finally {
             Files.deleteIfExists(tmp);
