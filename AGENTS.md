@@ -88,6 +88,7 @@ Changing them means changing them without a safety net.
 | `Silence.java` | silence at the start and at the end of a file |
 | `AudioProbe.java` | detect duplicate starts through loudness envelopes |
 | `TitleNumbers.java` | read season and episode from the video title |
+| `TitleMatch.java` | find the episode by its title when the channel numbers differently than TMDb |
 | `Naming.java` | build paths the way Jellyfin's scanner expects them |
 | `Tidy.java` | sort a folder of loose files into that layout |
 | `Cbz.java` | read ComicInfo.xml out of a comic archive |

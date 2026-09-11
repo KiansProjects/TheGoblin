@@ -102,6 +102,30 @@ final class Tmdb {
     }
 
     /**
+     * The season numbers TMDb has for a series, specials (season 0) left out.
+     *
+     * @return an empty list when there is no such series
+     */
+    List<Integer> seasons(int seriesId) throws IOException, InterruptedException {
+        return parseSeasons(get(API + "/tv/" + seriesId + "?api_key=" + apiKey));
+    }
+
+    /** Split out from {@link #seasons} so the parsing can be exercised offline. */
+    static List<Integer> parseSeasons(String json) {
+        List<Integer> numbers = new ArrayList<>();
+        for (Object entry : Json.array(Json.object(Json.parse(json)).get("seasons"))) {
+            int number = (int) Json.num(Json.object(entry), "season_number", -1);
+            // Season 0 is where TMDb files specials, shorts and web clips. A
+            // playlist of episodes has no business matching against those.
+            if (number > 0 && !numbers.contains(number)) {
+                numbers.add(number);
+            }
+        }
+        numbers.sort(Comparator.naturalOrder());
+        return numbers;
+    }
+
+    /**
      * One episode as TMDb has it.
      *
      * @param number  episode number within the season

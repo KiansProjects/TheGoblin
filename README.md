@@ -423,6 +423,25 @@ Videos without a recognisable number are **skipped and listed at the end** — n
 
 Always check with `--dry-run` first: the output shows the planned path including the season folder for every video.
 
+### When the channel counts differently than TMDb
+
+`--from-title` believes the numbers in the title. Official channels often do not use the same ones as TMDb. The playlist *All Pokemon episodes (in order)* splits the first 118 dubbed episodes into a season of 52 and a season of 60, where TMDb has 82 and 36 — so from around its `Season 1 | EPISODE 46` onwards every number points at a different episode than the one in the video, and Jellyfin writes the wrong title under each.
+
+The episode titles, on the other hand, are the real ones. `--match-titles` throws the numbers away and looks the title up in the season list on TMDb:
+
+```
+playlist <url> "Name" --episodes --match-titles --titles --out output/shows
+```
+
+Both sides are folded down to lowercase letters and digits first, so an accent, a curly apostrophe or an em dash where TMDb has a plain hyphen makes no difference; beyond that one character in ten may differ. Season and episode number then come from TMDb, and with `--titles` so does the spelling of the title.
+
+Two things are deliberately not guessed at and are listed at the end of the dry run instead:
+
+* a video whose title matches no episode well enough, **or matches two equally well** — two episodes of a long-running show can share a title, and there is no way to tell from the title which one is meant,
+* a video that would land on an episode another video already took.
+
+`--match-titles` needs the episode list, so it cannot be combined with `--no-tmdb`, and it overrides `--from-title`. It costs about one request per season before the first download.
+
 ## Finding boundaries automatically
 
 Timestamps in descriptions are typed by hand and are often a second or two off. Instead of measuring every one of them:

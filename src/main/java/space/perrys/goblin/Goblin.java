@@ -39,7 +39,9 @@ public final class Goblin {
               goblin playlist <url> <name> --episodes one video per episode
                                                       --from/--to limit the range,
                                                       --from-title reads season and
-                                                      episode from the title
+                                                      episode from the title,
+                                                      --match-titles looks the title
+                                                      up on TMDb instead
               goblin chapters <url> --playlist <name> the same through 'chapters'
 
             Options for 'shows':
@@ -230,6 +232,7 @@ public final class Goblin {
     private static int episodes(List<String[]> entries, String name, Path out,
                                 int season, int startEpisode, Integer year, Integer tmdbId,
                                 boolean useTmdb, boolean withTitles, boolean fromTitle,
+                                boolean matchTitles,
                                 boolean overwrite, boolean dryRun, boolean verbose,
                                 boolean upload, boolean keepLocal,
                                 String format, String container) throws Exception {
@@ -250,6 +253,27 @@ public final class Goblin {
             }
         }
 
+        TitleMatch matcher = null;
+        if (matchTitles) {
+            if (series == null) {
+                System.err.println("--match-titles needs the episode list from TMDb."
+                        + " Give --tmdb-id, or a name TMDb finds, and drop --no-tmdb.");
+                return 2;
+            }
+            try {
+                matcher = TitleMatch.of(tmdb, series.id());
+            } catch (IOException e) {
+                System.err.println("TMDb unreachable, so there is nothing to match"
+                        + " against: " + e.getMessage());
+                return 1;
+            }
+            if (matcher.size() == 0) {
+                System.err.println("TMDb lists no episodes for this series.");
+                return 1;
+            }
+            System.out.printf("Matching against %d episode titles on TMDb%n", matcher.size());
+        }
+
         Integer folderYear = (year != null) ? year : (series != null ? series.year() : null);
         Integer folderId = (tmdbId != null) ? tmdbId : (series != null ? series.id() : null);
 
@@ -263,17 +287,30 @@ public final class Goblin {
         // them and leave them to the operator.
         List<Path> targets = new ArrayList<>();
         List<String[]> usable = new ArrayList<>();
-        List<String> unparsed = new ArrayList<>();
+        List<String> unplaced = new ArrayList<>();
+        List<String> taken = new ArrayList<>();
+        Map<String, String> seen = new LinkedHashMap<>();
         int running = startEpisode;
 
         for (String[] entry : entries) {
             int sn = season;
             int ep;
+            String title = entry[1];
 
-            if (fromTitle) {
+            if (matcher != null) {
+                var ref = matcher.find(entry[1]);
+                if (ref.isEmpty()) {
+                    unplaced.add(entry[1].isBlank() ? entry[0] : entry[1]);
+                    continue;
+                }
+                sn = ref.get().season();
+                ep = ref.get().episode();
+                // TMDb spells the title, not the uploader.
+                title = ref.get().title();
+            } else if (fromTitle) {
                 var ref = TitleNumbers.parse(entry[1], season);
                 if (ref.isEmpty()) {
-                    unparsed.add(entry[1].isBlank() ? entry[0] : entry[1]);
+                    unplaced.add(entry[1].isBlank() ? entry[0] : entry[1]);
                     continue;
                 }
                 sn = ref.get().season();
@@ -282,25 +319,47 @@ public final class Goblin {
                 ep = running++;
             }
 
+            // Two videos landing on one episode would silently overwrite each
+            // other, and by the time that shows it has cost the downloads. The
+            // second one is reported and left alone instead.
+            String slot = String.format("S%02dE%02d", sn, ep);
+            if ((fromTitle || matcher != null) && seen.containsKey(slot)) {
+                taken.add(slot + "  " + entry[1] + "  (already: " + seen.get(slot) + ")");
+                continue;
+            }
+            seen.put(slot, entry[1]);
+
             usable.add(entry);
             targets.add(seriesDir.resolve(Naming.seasonFolder(sn))
-                    .resolve(fileFor(name, sn, ep, entry, withTitles, container)));
+                    .resolve(fileFor(name, sn, ep, title, withTitles, container)));
         }
 
         entries = usable;
 
         System.out.printf("%d videos -> %s%n%n", entries.size(), seriesDir);
 
-        if (!unparsed.isEmpty()) {
-            System.out.printf("%d without a recognisable number, skipped:%n", unparsed.size());
-            for (String t : unparsed) {
+        if (!unplaced.isEmpty()) {
+            System.out.printf("%d %s, skipped:%n", unplaced.size(),
+                    (matcher != null) ? "without a match on TMDb" : "without a recognisable number");
+            for (String t : unplaced) {
+                System.out.println("  " + t);
+            }
+            System.out.println();
+        }
+
+        if (!taken.isEmpty()) {
+            System.out.printf("%d that would land on an episode already taken, skipped:%n",
+                    taken.size());
+            for (String t : taken) {
                 System.out.println("  " + t);
             }
             System.out.println();
         }
 
         if (entries.isEmpty()) {
-            System.err.println("No video with a recognisable number. Try without --from-title.");
+            System.err.println((matcher != null)
+                    ? "No video matched an episode on TMDb. Check --tmdb-id."
+                    : "No video with a recognisable number. Try without --from-title.");
             return 1;
         }
 
@@ -385,9 +444,8 @@ public final class Goblin {
     }
 
     private static String fileFor(String name, int season, int episode,
-                                  String[] entry, boolean withTitles, String container) {
-        String title = withTitles ? entry[1] : "";
-        return Naming.episodeFile(name, season, episode, title, container);
+                                  String title, boolean withTitles, String container) {
+        return Naming.episodeFile(name, season, episode, withTitles ? title : "", container);
     }
 
     // ------------------------------------------------------------------
@@ -1034,6 +1092,7 @@ public final class Goblin {
         boolean useTmdb = true;
         boolean withTitles = false;
         boolean fromTitle = false;
+        boolean matchTitles = false;
         boolean overwrite = false;
         boolean upload = false;
         boolean keepLocal = false;
@@ -1056,6 +1115,7 @@ public final class Goblin {
                 case "--no-tmdb" -> useTmdb = false;
                 case "--titles" -> withTitles = true;
                 case "--from-title" -> fromTitle = true;
+                case "--match-titles" -> matchTitles = true;
                 case "--upload" -> upload = true;
                 case "--keep-local" -> keepLocal = true;
                 case "--overwrite" -> overwrite = true;
@@ -1095,8 +1155,8 @@ public final class Goblin {
 
         if (episodeMode) {
             return episodes(entries, name, Path.of(out), firstSeason, startEpisode,
-                    year, tmdbId, useTmdb, withTitles, fromTitle, overwrite, dryRun, verbose,
-                    upload, keepLocal, format, container);
+                    year, tmdbId, useTmdb, withTitles, fromTitle, matchTitles,
+                    overwrite, dryRun, verbose, upload, keepLocal, format, container);
         }
 
         System.out.printf("%d videos in the playlist%n%n", entries.size());
