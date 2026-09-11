@@ -320,25 +320,25 @@ final class Tracks {
             }
 
             // 1. The title, in the order Jellyfin resolves it.
-            String title = Json.str(tags, "title");
-            String name = Json.str(tags, "name");
-            String handler = Json.str(tags, "handler_name");
+            String title = tag(tags, "title");
+            String name = tag(tags, "name");
+            String handler = tag(tags, "handler_name");
             String fromTags = blank(title) ? name : title;
 
             if (!blank(fromTags)) {
                 String repeated = repetition(fromTags, stream);
                 if (repeated != null) {
-                    changes.add(clearTitle(label, index,
+                    changes.add(clearTitle(label, index, tags,
                             "\"" + fromTags + "\" repeats " + repeated));
                 }
             } else if (!blank(handler)
                     && !handler.equalsIgnoreCase(DEFAULT_HANDLER.get(type))) {
-                changes.add(clearTitle(label, index,
+                changes.add(clearTitle(label, index, tags,
                         "\"" + handler + "\" is the container's handler name"));
             }
 
             // 2. The language.
-            String lang = Json.str(tags, "language");
+            String lang = tag(tags, "language");
             if (UNSET_LANGUAGE.contains(lang == null ? "" : lang.toLowerCase(Locale.ROOT))) {
                 if (language == null) {
                     notes.add(label + "  no language (say --lang <code> to set one)");
@@ -375,11 +375,16 @@ final class Tracks {
      * default {@code SoundHandler} its muxer writes on its own, which is the
      * one value Jellyfin knows to ignore.
      */
-    private static Change clearTitle(String label, int index, String why) {
-        return new Change("title", label + "  title -> none, " + why,
-                List.of("-metadata:s:" + index, "title=",
-                        "-metadata:s:" + index, "name=",
-                        "-metadata:s:" + index, "handler_name="));
+    private static Change clearTitle(String label, int index,
+                                     Map<String, Object> tags, String why) {
+        List<String> args = new ArrayList<>();
+        for (String key : List.of("title", "name", "handler_name")) {
+            for (String spelling : spellings(tags, key)) {
+                args.add("-metadata:s:" + index);
+                args.add(spelling + "=");
+            }
+        }
+        return new Change("title", label + "  title -> none, " + why, args);
     }
 
     /**
@@ -392,7 +397,7 @@ final class Tracks {
         derived.addAll(words(Json.str(stream, "channel_layout")));
         derived.addAll(words(Json.str(stream, "codec_name")));
         derived.addAll(words(Json.str(stream, "profile")));
-        derived.addAll(words(Json.str(Json.object(stream.get("tags")), "language")));
+        derived.addAll(words(tag(Json.object(stream.get("tags")), "language")));
         int channels = (int) Json.num(stream, "channels", 0);
         if (channels > 0) {
             // "2.0" and "5.1" as they are written in a title, next to the
@@ -471,6 +476,38 @@ final class Tracks {
         } catch (IOException e) {
             System.out.println("    owner and mode could not be carried over: " + e.getMessage());
         }
+    }
+
+    /**
+     * A stream tag, found whatever its spelling.
+     *
+     * Matroska keeps its tags in capitals, so a file remuxed out of an MP4
+     * carries HANDLER_NAME where the MP4 had handler_name. Jellyfin looks
+     * these up without regard for case and finds it either way; a lookup here
+     * that insists on lowercase reports the file as clean and leaves the
+     * server showing "ISO Media file produced by Google Inc.".
+     */
+    private static String tag(Map<String, Object> tags, String key) {
+        for (var entry : tags.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(key) && entry.getValue() instanceof String value) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /** The spellings of one tag actually present, so clearing it can name them. */
+    private static List<String> spellings(Map<String, Object> tags, String key) {
+        List<String> out = new ArrayList<>();
+        for (String present : tags.keySet()) {
+            if (present.equalsIgnoreCase(key)) {
+                out.add(present);
+            }
+        }
+        if (out.isEmpty()) {
+            out.add(key);
+        }
+        return out;
     }
 
     private static boolean blank(String text) {

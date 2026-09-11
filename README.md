@@ -816,7 +816,10 @@ goblin tracks input
 goblin tracks /srv/media/shows --apply --lang eng
 ```
 
-* **A title nobody wrote.** Jellyfin looks for the title in the `title` tag,
+* **A title nobody wrote.** Tags are matched whatever their spelling - Matroska
+  keeps them in capitals, so a file remuxed out of an MP4 carries
+  `HANDLER_NAME` where the MP4 had `handler_name`, and Jellyfin finds it either
+  way. Jellyfin looks for the title in the `title` tag,
   then `name`, then falls back to the container's handler name unless that is
   the default `SoundHandler`. A handler name is a technical field, which is why
   files off YouTube introduce themselves as

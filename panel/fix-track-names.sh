@@ -72,13 +72,38 @@ default_handler() { [ "$1" = audio ] && echo soundhandler || echo subtitlehandle
 
 consistent=0; listed=0; rewritten=0; failed=0; unreadable=0
 
-# One field out of one ffprobe -of compact line.
+# One field out of one ffprobe -of compact line, whatever its spelling.
+#
+# Matroska keeps its tags in capitals, so a file remuxed out of an MP4 carries
+# TAG:HANDLER_NAME where the MP4 had tag:handler_name. Jellyfin looks these up
+# without regard for case and shows the value either way; a lookup here that
+# insists on lowercase calls the file clean and leaves the junk on screen.
 field() {
-    local line=$1 key=$2 pair
+    local line=$1 key=$2 pair name
     local IFS='|'
     for pair in $line; do
-        case "$pair" in "$key="*) printf '%s' "${pair#*=}"; return ;; esac
+        name=${pair%%=*}
+        if [ "${name,,}" = "$key" ]; then
+            printf '%s' "${pair#*=}"
+            return
+        fi
     done
+}
+
+# The spellings of one tag actually present on this stream, so clearing it can
+# name them. Falls back to the canonical one when the tag is not there at all.
+spellings() {
+    local line=$1 key=$2 pair name found=
+    local IFS='|'
+    for pair in $line; do
+        name=${pair%%=*}
+        case "$name" in tag:*) ;; *) continue ;; esac
+        if [ "${name,,}" = "tag:$key" ]; then
+            found="$found ${name#tag:}"
+        fi
+    done
+    [ -z "$found" ] && found=" $key"
+    printf '%s' "$found"
 }
 
 # Lowercase words, keeping the dot that holds "5.1" together.
@@ -101,7 +126,7 @@ repeats_only() {
 fix_file() {
     local f=$1 probe line
     probe=$(ffprobe -v error \
-        -show_entries 'stream=index,codec_type,codec_name,profile,channels,channel_layout:stream_tags=title,name,handler_name,language:stream_disposition=default' \
+        -show_entries 'stream=index,codec_type,codec_name,profile,channels,channel_layout:stream_tags:stream_disposition=default' \
         -of 'compact=p=0:nk=0' "file:$f" 2>/dev/null)
     if [ $? -ne 0 ] || [ -z "$probe" ]; then
         echo "  unreadable, left alone: $f"
@@ -153,7 +178,12 @@ fix_file() {
         fi
 
         if [ -n "$drop" ]; then
-            args+=(-metadata:s:"$idx" title= -metadata:s:"$idx" name= -metadata:s:"$idx" handler_name=)
+            local key spelling
+            for key in title name handler_name; do
+                for spelling in $(spellings "$line" "$key"); do
+                    args+=(-metadata:s:"$idx" "$spelling=")
+                done
+            done
             notes+=("$(printf '%-8s %2s  title -> none, %s' "$type" "$idx" "$why")")
         fi
 
