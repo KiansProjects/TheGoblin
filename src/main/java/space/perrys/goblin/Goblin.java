@@ -429,12 +429,25 @@ public final class Goblin {
         int failed = 0;
         int uploadFails = 0;
 
+        // With --upload the file is gone from disk the moment it is up, so
+        // the local check below cannot resume a run that stopped halfway -
+        // it would fetch the whole playlist again. The remote side knows
+        // what is already there, one listing per season folder.
+        Map<String, Set<String>> onServer = new LinkedHashMap<>();
+
         for (int i = 0; i < entries.size(); i++) {
             Path target = targets.get(i);
             String fileName = target.getFileName().toString();
 
             if (!overwrite && Files.exists(target)) {
                 System.out.println("  exists: " + fileName);
+                skipped++;
+                continue;
+            }
+
+            if (!overwrite && sftp != null
+                    && remoteNames(sftp, out, target, onServer).contains(fileName)) {
+                System.out.println("  on the server: " + fileName);
                 skipped++;
                 continue;
             }
@@ -1519,6 +1532,37 @@ public final class Goblin {
      * falls back to being relative to --out, which is what this did before.
      */
     /** Package-private: Tidy uploads through the same path rule. */
+    /**
+     * The file names already in the remote directory this file would go to.
+     *
+     * Listed once per directory and remembered, so a playlist of hundreds
+     * costs one listing per season rather than one per episode. A directory
+     * that does not exist yet, or a listing that fails, reads as empty - the
+     * worst that does is download something that is already there.
+     */
+    private static Set<String> remoteNames(Sftp sftp, Path root, Path file,
+                                           Map<String, Set<String>> cache) {
+        String directory = remotePath(root, file.getParent());
+        Set<String> known = cache.get(directory);
+        if (known != null) {
+            return known;
+        }
+
+        Set<String> names = new HashSet<>();
+        try {
+            for (Sftp.Entry entry : sftp.list(directory)) {
+                names.add(entry.name());
+            }
+        } catch (IOException e) {
+            names.clear();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            names.clear();
+        }
+        cache.put(directory, names);
+        return names;
+    }
+
     static String remotePath(Path root, Path file) {
         Path target = file.toAbsolutePath().normalize();
 

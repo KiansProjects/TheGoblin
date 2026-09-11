@@ -423,6 +423,12 @@ Videos without a recognisable number are **skipped and listed at the end** — n
 
 Always check with `--dry-run` first: the output shows the planned path including the season folder for every video.
 
+### Resuming a run
+
+A run that stops halfway is picked up by the next one: an episode whose file is already there is skipped rather than fetched again. With `--upload` the file is deleted locally the moment it is on the server, so that check alone would find nothing and a playlist of hundreds would start over. The remote directory is therefore listed as well — once per season folder, not once per episode — and an episode already on the server is skipped too.
+
+A listing that fails, or a season folder that does not exist yet, counts as empty. The worst that costs is one episode fetched twice.
+
 ### When the channel counts differently than TMDb
 
 `--from-title` believes the numbers in the title. Official channels often do not use the same ones as TMDb. The playlist *All Pokemon episodes (in order)* splits the first 118 dubbed episodes into a season of 52 and a season of 60, where TMDb has 82 and 36 — so from around its `Season 1 | EPISODE 46` onwards every number points at a different episode than the one in the video, and Jellyfin writes the wrong title under each.
