@@ -445,7 +445,9 @@ Two things are deliberately not guessed at and are listed at the end of the dry 
 * a video whose title matches no episode well enough, **or matches two equally well** — two episodes of a long-running show can share a title, and there is no way to tell from the title which one is meant,
 * a video that would land on an episode another video already took.
 
-`--verbose` prints the three episodes each skipped video came closest to, with their scores. Two entries with the same score are a tie — TMDb carries that title twice and nothing in the title says which one is meant.
+`--verbose` prints the three episodes each skipped video came closest to, with their scores. Two entries with the same score are a tie — TMDb carries that title twice and nothing in the title says which one is meant. `nothing on TMDb resembles this title` is the other answer, and it means TMDb holds that episode under a different name altogether, not a different spelling.
+
+For those, `--verbose` also lists the episodes on TMDb that no video claimed, in the seasons the run touched. A video that matched nothing and an episode nobody claimed are usually the same episode under two names, and the two lists put them side by side.
 
 `--match-titles` needs the episode list, so it cannot be combined with `--no-tmdb`, and it overrides `--from-title`. It costs about one request per season before the first download.
 

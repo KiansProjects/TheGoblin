@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Entry point and command line.
@@ -347,7 +349,11 @@ public final class Goblin {
                 // that is the difference between "TMDb spells it differently"
                 // and "TMDb has this title twice".
                 if (verbose && matcher != null) {
-                    for (String line : matcher.nearest(t, 3)) {
+                    List<String> near = matcher.nearest(t, 3);
+                    if (near.isEmpty()) {
+                        System.out.println("      nothing on TMDb resembles this title");
+                    }
+                    for (String line : near) {
                         System.out.println("      " + line);
                     }
                 }
@@ -365,6 +371,31 @@ public final class Goblin {
                 System.out.println("  " + t);
             }
             System.out.println();
+        }
+
+        if (verbose && matcher != null) {
+            // The other half of the picture: a video that matched nothing and
+            // an episode that nobody claimed are usually the same episode
+            // under two names. Only the seasons that were used, or this lists
+            // every season of the series.
+            Set<Integer> used = new HashSet<>();
+            for (String slot : seen.keySet()) {
+                used.add(Integer.valueOf(slot.substring(1, 3)));
+            }
+            List<String> unclaimed = new ArrayList<>();
+            for (TitleMatch.Ref ref : matcher.all()) {
+                String slot = String.format("S%02dE%02d", ref.season(), ref.episode());
+                if (used.contains(ref.season()) && !seen.containsKey(slot)) {
+                    unclaimed.add(slot + "  " + ref.title());
+                }
+            }
+            if (!unclaimed.isEmpty()) {
+                System.out.printf("%d episodes on TMDb that no video claimed:%n", unclaimed.size());
+                for (String line : unclaimed) {
+                    System.out.println("  " + line);
+                }
+                System.out.println();
+            }
         }
 
         if (entries.isEmpty()) {

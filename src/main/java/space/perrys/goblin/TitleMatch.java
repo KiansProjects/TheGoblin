@@ -118,9 +118,11 @@ final class TitleMatch {
         ranked.sort((a, b) -> Integer.compare(score(parts, b), score(parts, a)));
 
         List<String> lines = new ArrayList<>();
-        for (Candidate candidate : ranked.subList(0, Math.min(count, ranked.size()))) {
+        for (Candidate candidate : ranked) {
             int score = score(parts, candidate);
-            if (score == 0 && !lines.isEmpty()) {
+            // An episode that scored nothing is not a near miss, it is an
+            // unrelated title. Listing it says less than saying nothing.
+            if (score == 0 || lines.size() == count) {
                 break;
             }
             lines.add(String.format("S%02dE%02d  %s  (score %d)",
@@ -128,6 +130,15 @@ final class TitleMatch {
                     candidate.ref().title(), score));
         }
         return lines;
+    }
+
+    /** Every episode read from TMDb, in the order it was added. */
+    List<Ref> all() {
+        List<Ref> refs = new ArrayList<>(candidates.size());
+        for (Candidate candidate : candidates) {
+            refs.add(candidate.ref());
+        }
+        return refs;
     }
 
     /**
