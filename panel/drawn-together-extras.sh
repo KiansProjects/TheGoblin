@@ -33,7 +33,15 @@ if [[ "${1:-}" == "--apply" ]]; then
 fi
 
 dir="${1:?Usage: $0 [--apply] <path to the Drawn Together folder>}"
-season_dir="$dir/Season 00"
+
+# The extras may already sit loose inside a "Season 00" folder, or still be
+# beside "Season 01" at the top of the show. Pointed at the former, do not
+# nest another "Season 00" inside it.
+if [[ "$(basename "$dir")" =~ ^Season\ [0-9]+$ ]]; then
+    season_dir="$dir"
+else
+    season_dir="$dir/Season 00"
+fi
 
 # file number -> "TMDb special number|title"
 declare -A specials=(
@@ -87,7 +95,7 @@ for n in $(seq 1 30); do
     dest="$season_dir/Drawn Together S00E$(printf '%02d' "$special") - ${title}.$ext"
 
     echo "$(basename "$src")"
-    echo "    -> Season 00/$(basename "$dest")"
+    echo "    -> $(basename "$season_dir")/$(basename "$dest")"
 
     if $apply; then
         mkdir -p "$season_dir"
