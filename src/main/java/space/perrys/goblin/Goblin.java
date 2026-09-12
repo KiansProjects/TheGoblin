@@ -29,6 +29,8 @@ public final class Goblin {
               goblin concat <url> <url>... <title>    join separate uploads instead
                                                       of a real playlist, in that order
               goblin concat <url> <title> --movie     the same, stored as a movie
+              goblin series <zip url> [options]       a season of episodes from a
+                                                      zip link instead of a playlist
               goblin tidy input                       sort an inbox into the library
               goblin tidy <folder> --type <kind>      sort one kind of loose files
               goblin tidy <zip url> --type <kind>     fetch and unpack a zip first
@@ -185,6 +187,7 @@ public final class Goblin {
             case "movie" -> movie(args);
             case "concat" -> concat(args);
             case "audio" -> audio(args);
+            case "series" -> series(args);
             case "tidy" -> Tidy.run(args);
             case "tracks" -> Tracks.run(args);
             case "cbz" -> Cbr.run(args);
@@ -906,6 +909,29 @@ public final class Goblin {
         }
 
         System.out.printf("MusicBrainz IDs written into %d of %d files.%n", done, tracks.size());
+    }
+
+    // ------------------------------------------------------------------
+    // goblin series <zip url>
+    // ------------------------------------------------------------------
+
+    /**
+     * A season of episodes somebody put up as one zip rather than a YouTube
+     * playlist. Shorthand for {@code tidy <url> --type shows [options]} - the
+     * zip download, the sorting by file name, all of it already lives there.
+     */
+    private static int series(String[] args) throws Exception {
+        if (args.length < 2) {
+            System.err.println("Usage: goblin series <zip url> [options]");
+            return 2;
+        }
+        String[] tidyArgs = new String[args.length + 2];
+        tidyArgs[0] = "tidy";
+        tidyArgs[1] = args[1];
+        tidyArgs[2] = "--type";
+        tidyArgs[3] = "shows";
+        System.arraycopy(args, 2, tidyArgs, 4, args.length - 2);
+        return Tidy.run(tidyArgs);
     }
 
     // ------------------------------------------------------------------

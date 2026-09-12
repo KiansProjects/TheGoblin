@@ -710,6 +710,13 @@ once sorting is done either way, so a dry run costs the download again if you
 come back to apply it. `--remote` is for files already on the SFTP target and
 does not mix with a URL, which is fetched to this machine first.
 
+`series` is shorthand for exactly this, `--type shows` included, for a season
+somebody put up as a zip rather than a YouTube playlist:
+
+```
+series "https://example.com/some-show-season-1.zip" --apply
+```
+
 ### Where it gets its answers
 
 Three sources, in this order — and the database is last, not first:
