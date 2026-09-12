@@ -70,8 +70,17 @@ elif $use_tmdb; then
     use_tmdb=false
 fi
 
-show="${folder_name% \[tmdbid-*\]}"
+
+# Strip any trailing "[...]" and "(...)" group, not only "[tmdbid-N]" - a
+# folder tagged "[tmdb-N]" (missing the "id") or anything else would
+# otherwise drag its whole bracket suffix into every episode's file name.
+show="$folder_name"
+show="${show% \[*\]}"
 show="${show% (*)}"
+# The same characters Naming.sanitize() strips on the Java side - a colon
+# in a show name ("Batman: The Animated Series") is common and fatal on
+# some filesystems (SMB shares, exFAT) if left in a file name.
+show="$(printf '%s' "$show" | sed -e 's#[/\\:*?"<>|]##g' -e 's/  */ /g' -e 's/^ *//' -e 's/ *$//')"
 
 video_ext_pattern='\.(mkv|mp4|avi|m4v|mov|ts|wmv|mpg|mpeg)$'
 
