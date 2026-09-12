@@ -13,7 +13,8 @@
 # --tmdb-key can also come from TMDB_API_KEY in the environment. Every show
 # is a subfolder of the given root. One without a "[tmdbid-N]" suffix on
 # its own folder name just gets its titles stripped instead of filled -
-# see tmdb-titles.sh - and still gets the track fix regardless.
+# see tmdb-titles.sh - and still gets the track fix regardless. A folder
+# whose name contains "[imdbid-...]" is skipped entirely, both steps.
 #
 # Nothing is written without --apply.
 set -euo pipefail
@@ -68,11 +69,23 @@ lang_flag=()
 [[ -n "$lang" ]] && lang_flag=(--lang "$lang")
 
 shows=0
+skipped=0
 failed=0
 
 while IFS= read -r -d '' show <&3; do
+    name="$(basename "$show")"
+
+    # An "[imdbid-...]" folder is left alone entirely - not goblin's own
+    # naming, and not this script's to touch.
+    if [[ "${name,,}" == *"[imdbid-"* ]]; then
+        echo "Skipping $name ([imdbid-...] folder, left alone)"
+        echo
+        skipped=$((skipped + 1))
+        continue
+    fi
+
     shows=$((shows + 1))
-    echo "================ $(basename "$show") ================"
+    echo "================ $name ================"
 
     echo "--- episode titles ---"
     if ! "$titles_script" "${apply_flag[@]}" "$show"; then
@@ -89,7 +102,7 @@ while IFS= read -r -d '' show <&3; do
     echo
 done 3< <(find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
 
-echo "$shows shows processed.$( [[ $failed -gt 0 ]] && echo " $failed steps failed - see above." )"
+echo "$shows shows processed, $skipped skipped ([imdbid-...]).$( [[ $failed -gt 0 ]] && echo " $failed steps failed - see above." )"
 if $apply; then
     :
 else
