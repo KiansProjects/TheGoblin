@@ -222,8 +222,37 @@ final class Tidy {
     }
 
     /**
-     * Downloads a zip and unpacks it into a fresh "extracted" subfolder of
-     * {@code workDir}, returning that subfolder.
+     * The archive's own file name, stripped of any query-string-like suffix
+     * and the .zip extension - used as the name of the folder it unpacks
+     * into, since a literal "extracted" would otherwise sit in every path
+     * Tidy reads. A file inside the zip with no series name of its own
+     * ("S01E01 - Title.mkv") is identified from its parent folder's name
+     * ({@link #show}'s fallback), same as "Series Name/S01/02 - Title.mkv"
+     * already on disk - a folder that just says "extracted" turns that
+     * fallback from a feature into noise a TMDb search can match to
+     * anything.
+     */
+    private static String archiveName(String url) {
+        String name = url;
+        int query = name.indexOf('?');
+        if (query >= 0) {
+            name = name.substring(0, query);
+        }
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        if (name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            name = name.substring(0, name.length() - 4);
+        }
+        name = name.replaceAll("[^A-Za-z0-9._-]", " ").strip();
+        return name.isBlank() ? "download" : name;
+    }
+
+    /**
+     * Downloads a zip and unpacks it into a fresh subfolder of
+     * {@code workDir} named after the archive itself, returning that
+     * subfolder.
      *
      * Only .zip - rar and 7z need a native tool this machine may not have,
      * and a zip is what every file host offers regardless.
@@ -245,7 +274,7 @@ final class Tidy {
             throw new IOException("server responded with " + res.statusCode());
         }
 
-        Path extracted = workDir.resolve("extracted");
+        Path extracted = workDir.resolve(archiveName(url));
         Files.createDirectories(extracted);
 
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(archive))) {
