@@ -64,7 +64,7 @@ run() {
     local cmd="$1"
     shift
     case "${cmd}" in
-        shows|movie|chapters|playlist|concat|audio|tidy|cbz|queue)
+        shows|movie|chapters|playlist|concat|audio|series|tidy|cbz|queue)
             if [ ! -f "${JAR}" ]; then
                 echo "goblin.jar is missing."
                 return
@@ -81,6 +81,7 @@ run() {
             echo "playlist <url> <name> --episodes  one video per episode"
             echo "concat <url> <title> [--movie]    join a playlist into one file"
             echo "audio <url> [--musicbrainz]       store the audio track as music"
+            echo "series <zip url> [options]        a season from a zip link"
             echo "chapters <url> [--formats]        show chapters or available formats"
             echo "tidy <folder> [--apply]           sort an inbox into the library"
             echo "cbz <folder> [--apply]            repack .cbr comics as .cbz"
