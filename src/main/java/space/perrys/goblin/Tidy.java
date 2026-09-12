@@ -232,7 +232,13 @@ final class Tidy {
             throws IOException, InterruptedException {
         Path archive = workDir.resolve("download.zip");
 
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        // File hosts routinely redirect the actual bytes to a different node
+        // or a CDN edge - the default of never following would read as
+        // "download failed" for what is completely normal behaviour there.
+        HttpClient http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
         HttpRequest req = HttpRequest.newBuilder(URI.create(url)).GET().build();
         HttpResponse<Path> res = http.send(req, HttpResponse.BodyHandlers.ofFile(archive));
         if (res.statusCode() != 200) {
