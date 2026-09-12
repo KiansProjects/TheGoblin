@@ -26,6 +26,8 @@ public final class Goblin {
               goblin shows <url> <title> --movie      the same through 'shows'
               goblin audio <url> [options]            store the audio track as music
               goblin concat <url> <title>             join a playlist into one file
+              goblin concat <url> <url>... <title>    join separate uploads instead
+                                                      of a real playlist, in that order
               goblin concat <url> <title> --movie     the same, stored as a movie
               goblin tidy input                       sort an inbox into the library
               goblin tidy <folder> --type <kind>      sort one kind of loose files
@@ -906,24 +908,36 @@ public final class Goblin {
     }
 
     // ------------------------------------------------------------------
-    // goblin concat <playlist-url> <title>
+    // goblin concat <url> [<url> ...] <title>
     // ------------------------------------------------------------------
 
+    /** Distinguishes a URL argument from the title that follows the last one. */
+    private static boolean looksLikeUrl(String arg) {
+        return arg.startsWith("http://") || arg.startsWith("https://");
+    }
+
     /**
-     * Joins the videos of a playlist into one file.
+     * Joins several videos into one file: either the videos of a real
+     * playlist (one URL given), or separate uploads a channel never put
+     * into a playlist (two or more URLs given, joined in that order).
      *
      * Before joining, each part is checked for closing credits at the end and
      * for whether the next part begins with the end of the previous one. Both
      * are cut away so that no duplication ends up in the finished video.
      */
     private static int concat(String[] args) throws Exception {
-        if (args.length < 3) {
-            System.err.println("Usage: goblin concat <playlist-url> <title> [options]");
+        List<String> urls = new ArrayList<>();
+        int argIndex = 1;
+        while (argIndex < args.length && looksLikeUrl(args[argIndex])) {
+            urls.add(args[argIndex]);
+            argIndex++;
+        }
+        if (urls.isEmpty() || argIndex >= args.length) {
+            System.err.println("Usage: goblin concat <url> [<url> ...] <title> [options]");
             return 2;
         }
 
-        String url = args[1];
-        String title = args[2];
+        String title = args[argIndex++];
 
         Path out = Path.of("output");
         double outroFixed = -1;
@@ -947,7 +961,7 @@ public final class Goblin {
         String container = "mp4";
         String language = Tracks.configuredLanguage();
 
-        for (int i = 3; i < args.length; i++) {
+        for (int i = argIndex; i < args.length; i++) {
             switch (args[i]) {
                 case "-o", "--out" -> out = Path.of(args[++i]);
                 case "--outro" -> outroFixed = Double.parseDouble(args[++i]);
@@ -985,7 +999,13 @@ public final class Goblin {
 
         requireTools(!dryRun);
 
-        List<String[]> entries = YtDlp.playlist(url);
+        // A single URL is read as a real playlist (the historical usage);
+        // several URLs are each read as one video, in the order given on
+        // the command line - for uploads a channel never bundled into an
+        // actual playlist.
+        List<String[]> entries = (urls.size() == 1)
+                ? YtDlp.playlist(urls.get(0))
+                : YtDlp.videos(urls);
         if (entries.size() < 2) {
             System.err.println("Fewer than two videos - concat is not worth it for that.");
             return 1;

@@ -241,6 +241,18 @@ concat <playlist-url> "Title" --out output
 
 The parts are downloaded in playlist order, trimmed at the transitions and joined into one file.
 
+**Not everything worth joining sits in an actual playlist.** A two-part upload a
+channel never bundled together is just two separate `youtu.be` links. Give
+`concat` more than one URL and it treats them as the parts, in the order given,
+instead of resolving a playlist:
+
+```
+concat "https://youtu.be/abc123" "https://youtu.be/def456" "Title" --out output
+```
+
+With exactly one URL it still reads that URL as a playlist, so nothing about
+the existing usage changes.
+
 ### What gets cut
 
 **Closing credits at the end of each part.** Detected through a silence that runs to the end of the video, or a black frame at the end. An outro with music and picture running through cannot be found this way — `--outro <seconds>` gives a fixed deduction for that, or `--no-outro`.

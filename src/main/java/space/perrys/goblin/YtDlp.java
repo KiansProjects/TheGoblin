@@ -102,6 +102,21 @@ final class YtDlp {
         return direct;
     }
 
+    /**
+     * Resolves several separate uploads as if they were one playlist, in the
+     * order given. For {@code concat} joining videos a channel never put into
+     * an actual playlist - each URL is a single video, so {@code --flat-playlist}
+     * would find no "entries" at all and has no part to play here.
+     */
+    static List<String[]> videos(List<String> urls) throws IOException, InterruptedException {
+        List<String[]> out = new ArrayList<>();
+        for (String url : urls) {
+            VideoMeta meta = metadata(url);
+            out.add(new String[] {meta.id(), meta.title() == null ? "" : meta.title()});
+        }
+        return out;
+    }
+
     private static List<String[]> viaYtDlp(String url) throws IOException, InterruptedException {
         List<String> cmd = new ArrayList<>(List.of(
                 "yt-dlp", "--no-warnings", "--flat-playlist", "-J"));
