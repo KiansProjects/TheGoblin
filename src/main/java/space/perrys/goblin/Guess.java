@@ -24,6 +24,15 @@ final class Guess {
             "(?:^|[^a-z0-9])(?:s(\\d{1,2})[\\s._-]*e(\\d{1,3})|(\\d{1,2})x(\\d{1,3}))(?:[^0-9]|$)",
             Pattern.CASE_INSENSITIVE);
 
+    /**
+     * "x01", "x02" - some DVD rips number their bonus features this way,
+     * without a season digit in front. Unlike {@link #EPISODE}'s "1x02" this
+     * carries no season/episode pair, only a position among the extras, so it
+     * is matched by title against TMDb's specials rather than filed by number.
+     */
+    private static final Pattern EXTRA = Pattern.compile(
+            "(?:^|[^a-z0-9])x\\d{1,3}(?:[^0-9]|$)", Pattern.CASE_INSENSITIVE);
+
     /** A year in brackets is a deliberate statement, so it wins. */
     private static final Pattern BRACKETED_YEAR = Pattern.compile("[(\\[]((?:19|20)\\d{2})[)\\]]");
 
@@ -56,6 +65,10 @@ final class Guess {
             "multi", "dual", "dubbed", "subbed", "german", "english", "ger", "eng");
 
     record Episode(String series, int season, int episode, String title) {
+    }
+
+    /** A bonus feature named by its position, not by season/episode. */
+    record Extra(String series, String title) {
     }
 
     record Movie(String title, Integer year) {
@@ -91,6 +104,23 @@ final class Guess {
         // A name that is nothing but "S01E02" identifies an episode of nothing.
         return series.isEmpty() ? null : new Episode(series, season, episode,
                 title.isEmpty() ? null : title);
+    }
+
+    /**
+     * @return null when the name carries no "x##" marker, or nothing is left
+     *         of it once the marker is cut out
+     */
+    static Extra extra(String fileName) {
+        String name = words(stripExtension(fileName));
+
+        Matcher m = EXTRA.matcher(name);
+        if (!m.find()) {
+            return null;
+        }
+
+        String series = clean(name.substring(0, m.start()));
+        String title = clean(name.substring(m.end()));
+        return (series.isEmpty() || title.isEmpty()) ? null : new Extra(series, title);
     }
 
     /**

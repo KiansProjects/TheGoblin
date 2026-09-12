@@ -723,6 +723,24 @@ The comic folder carries the **earliest** year seen for that series, the file
 carries the issue's own — otherwise one run would scatter across `Saga (2012)`
 and `Saga (2013)`.
 
+### Bonus features numbered "x01"
+
+Some DVD rips number their extras this way instead of with a season and
+episode — `Drawn.Together.x01.Karaoke.Black.Chicks.Tongue.DVDRip.mp4`. There is
+no episode number to read there, only a title, so a file like that is matched
+by title against TMDb's specials (season 0) instead:
+
+```
+shows/Drawn Together (2004) [tmdbid-4604]/Season 00/Drawn Together S00E05 - Black Chick's Tongue [Sing-along].mp4
+```
+
+The match is strict on purpose: both titles are folded down to letters and
+digits, words that describe the *kind* of bonus content rather than which one
+("karaoke", "sing-along") are dropped, and what remains must be identical —
+`karaoke Black Chick's Tongue` and `Black Chick's Tongue [Sing-along]` both
+become `blackchickstongue`. Two specials folding to the same title, or none
+matching at all, and the file is left where it is rather than guessed at.
+
 Subtitles follow their episode and are renamed with it, including the language
 marker: `Show.S01E01.Title.en.srt` beside a video with release tags in its name
 becomes `Show S01E01 - Title.en.srt`.

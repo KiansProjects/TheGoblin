@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Sorts a folder of loose files into the layout a media server expects.
@@ -390,6 +391,7 @@ final class Tidy {
         final Path target;
         final Tmdb tmdb;
         final Map<String, Tmdb.Series> seen = new HashMap<>();
+        final Map<Integer, List<Tmdb.Episode>> specials = new HashMap<>();
 
         Context(String type, Path root, Path target, boolean useDatabase) {
             this.type = type;
@@ -423,6 +425,27 @@ final class Tidy {
                 System.out.println("  TMDb unreachable for \"" + name + "\": " + e.getMessage());
             }
             seen.put(key, found);
+            return found;
+        }
+
+        /**
+         * TMDb's season 0, i.e. the specials - fetched once per series and
+         * kept for every extra of that series. {@link Tmdb#seasons} leaves
+         * season 0 out on purpose (a numbered playlist has no business
+         * matching against it), but a bonus feature is matched by title, not
+         * by number, so it can use it directly.
+         */
+        List<Tmdb.Episode> specials(int seriesId) {
+            if (specials.containsKey(seriesId)) {
+                return specials.get(seriesId);
+            }
+            List<Tmdb.Episode> found = List.of();
+            try {
+                found = tmdb.season(seriesId, 0);
+            } catch (IOException | InterruptedException | RuntimeException e) {
+                System.out.println("  TMDb specials unreachable: " + e.getMessage());
+            }
+            specials.put(seriesId, found);
             return found;
         }
     }
@@ -617,14 +640,13 @@ final class Tidy {
         if (episode == null) {
             // "Series Name/S01/02 - Title.mkv" carries the series in the path.
             Path parent = file.getParent();
-            if (parent == null) {
-                return null;
+            if (parent != null) {
+                episode = Guess.episode(parent.getFileName() + " " + file.getFileName());
+                how = "file name and folder";
             }
-            episode = Guess.episode(parent.getFileName() + " " + file.getFileName());
-            how = "file name and folder";
         }
         if (episode == null) {
-            return null;
+            return special(context, file);
         }
 
         Tmdb.Series series = context.lookup(episode.series(), false);
@@ -640,6 +662,80 @@ final class Tidy {
                 .resolve(Naming.seasonFolder(episode.season()))
                 .resolve(Naming.episodeFile(name, episode.season(), episode.episode(),
                         episode.title(), extension(file))), how);
+    }
+
+    /**
+     * A DVD bonus feature numbered "x01" instead of "S01E02" - a karaoke
+     * track, a deleted scene, a hidden feature. There is no season or episode
+     * number to read, only a title, so it is placed by matching that title
+     * against TMDb's specials (season 0) instead.
+     *
+     * Matching is deliberately strict: the two titles must be identical once
+     * words that describe the *kind* of bonus content rather than which one
+     * ("karaoke", "sing-along") are dropped and everything that is left is
+     * squeezed together letter by letter. That also papers over "Ling-Ling"
+     * against a ripper's "LingLing" - a space is not a meaningful difference
+     * once whole words already match - while still refusing anything that
+     * merely resembles a special. No database, no match: left where it is.
+     */
+    private static Plan special(Context context, Path file) {
+        if (context.tmdb == null) {
+            return null;
+        }
+
+        Guess.Extra extra = Guess.extra(file.getFileName().toString());
+        if (extra == null) {
+            Path parent = file.getParent();
+            if (parent == null) {
+                return null;
+            }
+            extra = Guess.extra(parent.getFileName() + " " + file.getFileName());
+        }
+        if (extra == null) {
+            return null;
+        }
+
+        Tmdb.Series series = context.lookup(extra.series(), false);
+        if (series == null) {
+            return null;
+        }
+
+        String wanted = condensed(extra.title());
+        Tmdb.Episode match = null;
+        for (Tmdb.Episode candidate : context.specials(series.id())) {
+            if (wanted.equals(condensed(candidate.name()))) {
+                if (match != null) {
+                    // Two specials fold to the same title - a guess would be
+                    // as likely to be wrong as right.
+                    return null;
+                }
+                match = candidate;
+            }
+        }
+        if (match == null) {
+            return null;
+        }
+
+        return new Plan(file, context.target
+                .resolve(Naming.seriesFolder(series.name(), series.year(), series.id()))
+                .resolve(Naming.seasonFolder(0))
+                .resolve(Naming.episodeFile(series.name(), 0, match.number(),
+                        match.name(), extension(file))), "file name + TMDb specials");
+    }
+
+    private static final Pattern EXTRA_FILLER = Pattern.compile(
+            "\\b(?:karaoke|sing\\s?along|music\\s?video)\\b");
+
+    /**
+     * Letters and digits only, filler words for the *kind* of bonus content
+     * dropped first. "karaoke Black Chick's Tongue" and "Black Chick's Tongue
+     * [Sing-along]" both become "blackchickstongue" - close enough to call
+     * the same special, while still telling two different ones apart.
+     */
+    private static String condensed(String text) {
+        String folded = TitleMatch.fold(text);
+        String stripped = EXTRA_FILLER.matcher(folded).replaceAll(" ");
+        return stripped.replaceAll("[^a-z0-9]", "");
     }
 
     private static Plan movie(Context context, Path file) {
