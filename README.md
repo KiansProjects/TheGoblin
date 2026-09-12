@@ -693,6 +693,23 @@ stops. Read it before you let it loose.
 step read its `ComicInfo.xml` instead of guessing from the file name. See
 [Repacking .cbr as .cbz](#repacking-cbr-as-cbz).
 
+### A zip on a file host instead of a folder
+
+Give the `<folder>` argument a `http://` or `https://` URL instead of a path,
+and it is fetched and unpacked first — for a season somebody put up as one zip
+rather than a folder already on this machine:
+
+```
+tidy "https://example.com/some-show-season-1.zip" --type shows --apply
+```
+
+Only `.zip` — rar and 7z need a native tool this machine may not have. It is
+downloaded and unpacked into scratch space even on a plain dry run, since
+there is no way to say what is inside without it; the scratch copy is removed
+once sorting is done either way, so a dry run costs the download again if you
+come back to apply it. `--remote` is for files already on the SFTP target and
+does not mix with a URL, which is fetched to this machine first.
+
 ### Where it gets its answers
 
 Three sources, in this order — and the database is last, not first:

@@ -31,6 +31,7 @@ public final class Goblin {
               goblin concat <url> <title> --movie     the same, stored as a movie
               goblin tidy input                       sort an inbox into the library
               goblin tidy <folder> --type <kind>      sort one kind of loose files
+              goblin tidy <zip url> --type <kind>     fetch and unpack a zip first
               goblin tracks <path> [--apply]          give every audio and subtitle
                                                       track in a file or a library
                                                       the same name in Jellyfin
@@ -1535,7 +1536,7 @@ public final class Goblin {
      * audio track plus the muxed file blows through it immediately. The server
      * directory is used instead, which is subject to the server's disk limit.
      */
-    private static Path workRoot() throws IOException {
+    static Path workRoot() throws IOException {
         String override = System.getenv("GOBLIN_TMP");
         Path root = (override == null || override.isBlank())
                 ? Path.of(".").toAbsolutePath().normalize()
@@ -1801,7 +1802,7 @@ public final class Goblin {
         }
     }
 
-    private static void deleteTree(Path root) {
+    static void deleteTree(Path root) {
         try (var paths = Files.walk(root)) {
             paths.sorted((a, b) -> b.getNameCount() - a.getNameCount())
                     .forEach(p -> {

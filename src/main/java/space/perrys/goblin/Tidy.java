@@ -1,10 +1,16 @@
 package space.perrys.goblin;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -14,6 +20,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Sorts a folder of loose files into the layout a media server expects.
@@ -85,6 +93,7 @@ final class Tidy {
     static int run(String[] args) throws Exception {
         if (args.length < 2) {
             System.err.println("Usage: goblin tidy <folder> --type comics|music|shows|movies [options]");
+            System.err.println("       goblin tidy <zip url> --type shows [options]");
             System.err.println("       goblin tidy <remote folder> --type comics --remote");
             return 2;
         }
@@ -131,6 +140,13 @@ final class Tidy {
             return 2;
         }
 
+        boolean fromUrl = looksLikeUrl(args[1]);
+        if (fromUrl && remote) {
+            System.err.println("--remote is for files already on the SFTP target; a URL is "
+                    + "fetched to this machine first - use one or the other.");
+            return 2;
+        }
+
         // --remote needs it too, and needs it for the files themselves rather
         // than for a copy afterwards.
         Sftp sftp = (upload || remote) ? Sftp.fromConfig(Goblin.CONFIG) : null;
@@ -159,21 +175,95 @@ final class Tidy {
                     withTitles, flat, group);
         }
 
-        // Without --type the folder is an inbox: one subfolder per kind, each
-        // going to its own place in the library.
-        if (type == null) {
-            return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert,
-                    withTitles, flat, group);
+        // A zip somebody put on a file host rather than a folder already on
+        // this machine. Fetched and unpacked into scratch space regardless of
+        // --apply - there is no way to say what is inside without it - and
+        // cleaned up once sorting is done either way.
+        Path zipWork = null;
+        if (fromUrl) {
+            zipWork = Files.createTempDirectory(Goblin.workRoot(), "goblin-zip-");
+            System.out.println("Downloading " + args[1] + " ...");
+            try {
+                folder = downloadAndExtract(args[1], zipWork);
+            } catch (IOException e) {
+                System.err.println("Could not fetch or unpack the archive: " + e.getMessage());
+                Goblin.deleteTree(zipWork);
+                return 1;
+            }
+            System.out.println("Unpacked. Sorting its contents ...");
+            System.out.println();
         }
 
-        if (!Files.isDirectory(folder)) {
-            System.err.println("Not a directory: " + folder);
-            return 2;
+        try {
+            // Without --type the folder is an inbox: one subfolder per kind,
+            // each going to its own place in the library.
+            if (type == null) {
+                return inbox(folder, apply, useDatabase, logFile, sftp, keepLocal, convert,
+                        withTitles, flat, group);
+            }
+
+            if (!Files.isDirectory(folder)) {
+                System.err.println("Not a directory: " + folder);
+                return 2;
+            }
+
+            Path target = (out != null) ? out : Path.of(destination(type));
+            return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
+                    convert, withTitles, flat, group);
+        } finally {
+            if (zipWork != null) {
+                Goblin.deleteTree(zipWork);
+            }
+        }
+    }
+
+    private static boolean looksLikeUrl(String arg) {
+        return arg.startsWith("http://") || arg.startsWith("https://");
+    }
+
+    /**
+     * Downloads a zip and unpacks it into a fresh "extracted" subfolder of
+     * {@code workDir}, returning that subfolder.
+     *
+     * Only .zip - rar and 7z need a native tool this machine may not have,
+     * and a zip is what every file host offers regardless.
+     */
+    private static Path downloadAndExtract(String url, Path workDir)
+            throws IOException, InterruptedException {
+        Path archive = workDir.resolve("download.zip");
+
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url)).GET().build();
+        HttpResponse<Path> res = http.send(req, HttpResponse.BodyHandlers.ofFile(archive));
+        if (res.statusCode() != 200) {
+            throw new IOException("server responded with " + res.statusCode());
         }
 
-        Path target = (out != null) ? out : Path.of(destination(type));
-        return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
-                convert, withTitles, flat, group);
+        Path extracted = workDir.resolve("extracted");
+        Files.createDirectories(extracted);
+
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(archive))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                Path target = extracted.resolve(entry.getName()).normalize();
+                // A downloaded zip is not a trusted source - refuse an entry
+                // that would land outside the folder it is meant to unpack
+                // into ("zip slip").
+                if (!target.startsWith(extracted)) {
+                    throw new IOException("zip entry escapes the target folder: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(target);
+                } else {
+                    Files.createDirectories(target.getParent());
+                    Files.copy(zip, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                zip.closeEntry();
+            }
+        }
+
+        Files.deleteIfExists(archive);
+        return extracted;
     }
 
     /**
