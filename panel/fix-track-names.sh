@@ -30,6 +30,15 @@
 #   ./fix-track-names.sh --apply --lang deu /srv/media/shows/Tatort
 #   ./fix-track-names.sh --apply --name-tracks /srv/media/movies
 #
+# $FFPROBE and $FFMPEG name the binaries to use. Which build reads the file
+# matters: MP4 keeps one of its track names in a udta box that ffmpeg only
+# learned to report with 8.x. An older ffprobe shows no tag at all, this
+# script calls the file consistent, and Jellyfin - which ships its own
+# current ffmpeg - goes on printing the name nobody else can see. A remux
+# drops the box either way, so only the reading side has to be current:
+#
+#   FFPROBE=/opt/jellyfin/ffmpeg/ffprobe ./fix-track-names.sh --apply /srv/media
+#
 # --name-tracks names every track after its channel layout instead of leaving
 # it to the attributes: "Surround 5.1 - English - AAC" rather than
 # "English - AAC - 5.1". Jellyfin puts the title first and drops every
@@ -71,7 +80,10 @@ if [ ${#roots[@]} -eq 0 ]; then
     exit 2
 fi
 
-for tool in ffprobe ffmpeg; do
+ffprobe_bin=${FFPROBE:-ffprobe}
+ffmpeg_bin=${FFMPEG:-ffmpeg}
+
+for tool in "$ffprobe_bin" "$ffmpeg_bin"; do
     command -v "$tool" >/dev/null || { echo "$tool is not installed." >&2; exit 1; }
 done
 
@@ -151,7 +163,7 @@ canonical() {
 
 fix_file() {
     local f=$1 probe line
-    probe=$(ffprobe -v error \
+    probe=$("$ffprobe_bin" -v error \
         -show_entries 'stream=index,codec_type,codec_name,profile,channels,channel_layout:stream_tags:stream_disposition=default' \
         -of 'compact=p=0:nk=0' "file:$f" 2>/dev/null </dev/null)
     if [ $? -ne 0 ] || [ -z "$probe" ]; then
@@ -283,7 +295,7 @@ EOF
         mp4|m4v|mov) extra=(-movflags +faststart) ;;
     esac
 
-    if ffmpeg -nostdin -hide_banner -loglevel error -y -i "file:$f" -map 0 -c copy \
+    if "$ffmpeg_bin" -nostdin -hide_banner -loglevel error -y -i "file:$f" -map 0 -c copy \
             "${args[@]}" "${extra[@]}" "file:$tmp"; then
         # Onto the new file before it takes the old one's place, or a rewrite
         # as root hands the library to root. Not the modification time -

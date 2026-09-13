@@ -17,6 +17,13 @@
 #
 #   ./preview-track-names.sh /srv/media/shows
 #   ./preview-track-names.sh /srv/media/shows/Pokemon\ \(1997\)\ \[tmdbid-60572\]
+#
+# $FFPROBE names the binary to use, and it should be the one Jellyfin uses:
+# a track name kept in an MP4 udta box is reported by ffprobe 8.x and not by
+# older builds, so a preview taken with an older one shows a line Jellyfin
+# does not print.
+#
+#   FFPROBE=/opt/jellyfin/ffmpeg/ffprobe ./preview-track-names.sh /srv/media
 
 set -uo pipefail
 
@@ -25,7 +32,8 @@ if [ $# -eq 0 ]; then
     exit 2
 fi
 
-command -v ffprobe >/dev/null || { echo "ffprobe is not installed." >&2; exit 1; }
+ffprobe_bin=${FFPROBE:-ffprobe}
+command -v "$ffprobe_bin" >/dev/null || { echo "$ffprobe_bin is not installed." >&2; exit 1; }
 
 # Words that carry nothing Jellyfin does not already print. Kept in sync with
 # fix-track-names.sh.
@@ -88,21 +96,25 @@ codec_name() {
 
 preview_file() {
     local f=$1 probe line
-    probe=$(ffprobe -v error -select_streams a \
+    probe=$("$ffprobe_bin" -v error -select_streams a \
         -show_entries 'stream=index,codec_name,channels,channel_layout:stream_tags' \
         -of 'compact=p=0:nk=0' "file:$f" 2>/dev/null </dev/null)
     [ -z "$probe" ] && return
 
     while IFS= read -r line; do
         [ -z "$line" ] && continue
-        local codec layout channels title lang shown derived
+        local codec layout channels title name lang shown derived
         codec=$(field "$line" codec_name)
         layout=$(field "$line" channel_layout)
         channels=$(field "$line" channels)
         title=$(field "$line" tag:title)
+        name=$(field "$line" tag:name)
         lang=$(field "$line" tag:language)
 
+        # The order Jellyfin resolves the title in: the title tag, then the
+        # name tag it falls back to.
         shown=$title
+        [ -z "$shown" ] && shown=$name
         if [ -n "$shown" ]; then
             derived="$filler $(words "$layout") $(words "$codec") $(words "$lang")"
             case "$channels" in
