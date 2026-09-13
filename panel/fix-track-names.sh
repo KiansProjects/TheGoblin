@@ -195,6 +195,11 @@ fix_file() {
                 ''|0|N/A) ;;
                 *) derived="$derived $channels.0 $((channels - 1)).1" ;;
             esac
+            # "Stereo"/"Mono" only ever come from the channel count, not from
+            # the layout tag - which plenty of encoders leave blank for a
+            # plain stereo track. Checking the tag alone then misses a title
+            # that is exactly the word a plain channel count would give it.
+            derived="$derived $(words "$(canonical "$channels" "$layout")")"
             if repeats_only "$shown" "$derived"; then
                 redundant=1; why="\"$shown\" repeats what is derived anyway"
             fi
