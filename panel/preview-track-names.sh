@@ -123,8 +123,14 @@ preview_file() {
         [ -n "$cname" ] && parts+=("$cname")
         [ -n "$chname" ] && parts+=("$chname")
 
-        local IFS=' - '
-        printf '%-90s  %s\n' "${f##*/}" "${parts[*]}"
+        # Not "${parts[*]}" with IFS=' - ': bash joins on the first character
+        # of IFS and the rest of it is never seen.
+        local shownline= part
+        for part in "${parts[@]}"; do
+            [ -n "$shownline" ] && shownline="$shownline - "
+            shownline="$shownline$part"
+        done
+        printf '%-90s  %s\n' "${f##*/}" "$shownline"
     done <<EOF
 $probe
 EOF
