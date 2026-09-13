@@ -249,6 +249,34 @@ final class Tidy {
         return name.isBlank() ? "download" : name;
     }
 
+    /** How far to follow a chain of redirects before calling it a loop. */
+    private static final int MAX_REDIRECTS = 10;
+
+    /**
+     * A URI out of a URL a server actually sent, rather than one it should
+     * have sent.
+     *
+     * Location headers are routinely handed over unencoded - archive.org
+     * answers a download with a query holding a raw space - and URI rejects
+     * those outright. Every browser follows such a redirect, so refusing it
+     * here shows up as a download that cannot work for no reason anyone can
+     * see. The characters a URI may not carry are escaped; a percent sign is
+     * left alone, so a URL that was encoded to begin with survives as it is.
+     */
+    static URI toUri(String url) {
+        StringBuilder out = new StringBuilder(url.length());
+        url.codePoints().forEach(cp -> {
+            if (cp <= 0x20 || cp >= 0x7f || "\"<>\\^`{|}".indexOf(cp) >= 0) {
+                for (byte b : new String(Character.toChars(cp)).getBytes(StandardCharsets.UTF_8)) {
+                    out.append('%').append(String.format("%02X", b & 0xff));
+                }
+            } else {
+                out.append((char) cp);
+            }
+        });
+        return URI.create(out.toString());
+    }
+
     /**
      * Downloads a zip and unpacks it into a fresh subfolder of
      * {@code workDir} named after the archive itself, returning that
@@ -262,14 +290,33 @@ final class Tidy {
         Path archive = workDir.resolve("download.zip");
 
         // File hosts routinely redirect the actual bytes to a different node
-        // or a CDN edge - the default of never following would read as
-        // "download failed" for what is completely normal behaviour there.
+        // or a CDN edge - not following would read as "download failed" for
+        // what is completely normal behaviour there. Followed here rather
+        // than by the client, because the client parses the Location header
+        // into a URI and gives up on the ones that are not encoded.
         HttpClient http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url)).GET().build();
-        HttpResponse<Path> res = http.send(req, HttpResponse.BodyHandlers.ofFile(archive));
+
+        URI source = toUri(url);
+        HttpResponse<Path> res;
+        for (int hop = 0; ; hop++) {
+            HttpRequest req = HttpRequest.newBuilder(source).GET().build();
+            res = http.send(req, HttpResponse.BodyHandlers.ofFile(archive));
+            int code = res.statusCode();
+            if (code < 300 || code > 399) {
+                break;
+            }
+            if (hop == MAX_REDIRECTS) {
+                throw new IOException("gave up after " + MAX_REDIRECTS + " redirects");
+            }
+            String location = res.headers().firstValue("location")
+                    .orElseThrow(() -> new IOException("redirect without a location"));
+            // Relative against the URL it came from, which is what a relative
+            // Location means and what an absolute one ignores.
+            source = source.resolve(toUri(location));
+        }
         if (res.statusCode() != 200) {
             throw new IOException("server responded with " + res.statusCode());
         }
