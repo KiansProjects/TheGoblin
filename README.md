@@ -757,7 +757,7 @@ title. There is nothing in such a name to identify, so it is left where it
 lies. `--tmdb-id` supplies what the name will not:
 
 ```
-tidy "https://archive.org/.../some-show.zip" --type shows --tmdb-id 1877 --apply
+tidy "https://example.com/some-show.zip" --type shows --tmdb-id 12345 --apply
 ```
 
 The number is the one in the series' themoviedb.org address, and pasting that

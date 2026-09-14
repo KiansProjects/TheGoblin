@@ -244,9 +244,9 @@ final class Tidy {
     private static final Pattern TMDB_ID = Pattern.compile("(?:^|/tv/)(\\d{1,9})");
 
     /**
-     * The series number out of "1877" or out of the page it came from,
-     * "https://www.themoviedb.org/tv/1877-ghost-stories" - pasting the URL is
-     * how anybody actually has the number to hand.
+     * The series number out of "38693" or out of the page it came from,
+     * "https://www.themoviedb.org/tv/38693-ninjago" - pasting the URL is how
+     * anybody actually has the number to hand.
      *
      * @return null when there is no number to read
      */
