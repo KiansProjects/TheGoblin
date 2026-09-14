@@ -93,6 +93,12 @@ public final class Goblin {
                                       place in the library; -o . sorts in place)
                   --apply             actually move; without it nothing is touched
                   --no-database       skip TMDb, sort from names alone
+                  --tmdb-id <id>      the series every file in the run belongs
+                                      to, shows only. Files a rip that only
+                                      counts ("01.", "02.") by counting
+                                      through TMDb's seasons, and takes the
+                                      episode titles from TMDb. The number or
+                                      the themoviedb.org URL it sits in
                   --upload            push the sorted files on over SFTP
                   --keep-local        keep the local copy after the upload
                   --convert           repack .cbr comics as .cbz before sorting,

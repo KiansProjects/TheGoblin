@@ -101,6 +101,9 @@ final class Tidy {
         Path folder = Path.of(args[1]);
         Path out = null;
         String type = null;
+        // Shows only: the series every file in the run belongs to, said
+        // outright rather than read out of the names.
+        Integer tmdbId = null;
         boolean apply = false;
         boolean useDatabase = true;
         boolean upload = false;
@@ -126,6 +129,14 @@ final class Tidy {
                 case "--remote" -> remote = true;
                 case "--titles" -> withTitles = true;
                 case "--flat" -> flat = true;
+                case "--tmdb-id" -> {
+                    tmdbId = tmdbNumber(args[++i]);
+                    if (tmdbId == null) {
+                        System.err.println("--tmdb-id wants the number out of a TMDb series "
+                                + "URL, or that URL itself.");
+                        return 2;
+                    }
+                }
                 case "--by" -> group = Books.Group.of(args[++i]);
                 case "--log" -> logFile = Path.of(args[++i]);
                 default -> {
@@ -137,6 +148,15 @@ final class Tidy {
 
         if (type != null && !TYPES.contains(type)) {
             System.err.println("Unknown type: " + type);
+            return 2;
+        }
+
+        if (tmdbId != null && !"shows".equals(type)) {
+            System.err.println("--tmdb-id names one television series, so it needs --type shows.");
+            return 2;
+        }
+        if (tmdbId != null && !useDatabase) {
+            System.err.println("--tmdb-id is a TMDb lookup, so it cannot be had with --no-database.");
             return 2;
         }
 
@@ -209,7 +229,7 @@ final class Tidy {
 
             Path target = (out != null) ? out : Path.of(destination(type));
             return one(folder, target, type, apply, useDatabase, logFile, sftp, keepLocal,
-                    convert, withTitles, flat, group);
+                    convert, withTitles, flat, group, tmdbId);
         } finally {
             if (zipWork != null) {
                 Goblin.deleteTree(zipWork);
@@ -219,6 +239,20 @@ final class Tidy {
 
     private static boolean looksLikeUrl(String arg) {
         return arg.startsWith("http://") || arg.startsWith("https://");
+    }
+
+    private static final Pattern TMDB_ID = Pattern.compile("(?:^|/tv/)(\\d{1,9})");
+
+    /**
+     * The series number out of "1877" or out of the page it came from,
+     * "https://www.themoviedb.org/tv/1877-ghost-stories" - pasting the URL is
+     * how anybody actually has the number to hand.
+     *
+     * @return null when there is no number to read
+     */
+    private static Integer tmdbNumber(String raw) {
+        var m = TMDB_ID.matcher(raw.strip());
+        return m.find() ? Integer.valueOf(m.group(1)) : null;
     }
 
     /**
@@ -403,7 +437,8 @@ final class Tidy {
             any = true;
             System.out.println("================ " + type + " ================");
             worst = Math.max(worst, one(sub, Path.of(destination(type)), type,
-                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles, flat, group));
+                    apply, useDatabase, logFile, sftp, keepLocal, convert, withTitles, flat,
+                    group, null));
             System.out.println();
         }
 
@@ -418,7 +453,7 @@ final class Tidy {
     private static int one(Path folder, Path target, String type, boolean apply,
                            boolean useDatabase, Path logFile, Sftp sftp, boolean keepLocal,
                            boolean convert, boolean withTitles, boolean flat,
-                           Books.Group group)
+                           Books.Group group, Integer tmdbId)
             throws Exception {
         Set<String> wanted = switch (type) {
             case "comics" -> COMIC_EXT;
@@ -446,7 +481,14 @@ final class Tidy {
         }
         System.out.println();
 
-        Context context = new Context(type, folder, target, useDatabase);
+        Context context = new Context(type, folder, target, useDatabase, tmdbId);
+        if (tmdbId != null && context.pinned == null) {
+            // Sorting on regardless would scatter the run across whatever the
+            // file names happen to search well for, which is the opposite of
+            // what naming the series was meant to achieve.
+            System.err.println("TMDb has no series " + tmdbId + ", or it could not be reached.");
+            return 1;
+        }
 
         List<Plan> plans = new ArrayList<>();
         List<String> unidentified = new ArrayList<>();
@@ -563,9 +605,16 @@ final class Tidy {
         final Path target;
         final Tmdb tmdb;
         final Map<String, Tmdb.Series> seen = new HashMap<>();
-        final Map<Integer, List<Tmdb.Episode>> specials = new HashMap<>();
+        final Map<String, List<Tmdb.Episode>> bySeason = new HashMap<>();
+        final Map<Integer, List<Integer>> seasonNumbers = new HashMap<>();
 
-        Context(String type, Path root, Path target, boolean useDatabase) {
+        /**
+         * The series --tmdb-id named, or null when the run has to work out
+         * for itself what each file belongs to.
+         */
+        final Tmdb.Series pinned;
+
+        Context(String type, Path root, Path target, boolean useDatabase, Integer tmdbId) {
             this.type = type;
             this.root = root.toAbsolutePath().normalize();
             this.target = target;
@@ -575,6 +624,25 @@ final class Tidy {
             if (useDatabase && tmdb == null && !"comics".equals(type) && !"music".equals(type)) {
                 System.out.println("No TMDb key, so no IDs and no years from the database. "
                         + "Sorting carries on with what the file names say.");
+            }
+            this.pinned = (tmdbId != null) ? byId(tmdbId) : null;
+            if (pinned != null) {
+                System.out.println("Every episode in this run belongs to "
+                        + Naming.seriesFolder(pinned.name(), pinned.year(), pinned.id()) + ".");
+                System.out.println();
+            }
+        }
+
+        private Tmdb.Series byId(int seriesId) {
+            if (tmdb == null) {
+                return null;
+            }
+            try {
+                return tmdb.byId(seriesId);
+            } catch (IOException | InterruptedException | RuntimeException e) {
+                System.out.println("  TMDb unreachable for series " + seriesId + ": "
+                        + e.getMessage());
+                return null;
             }
         }
 
@@ -601,25 +669,79 @@ final class Tidy {
         }
 
         /**
-         * TMDb's season 0, i.e. the specials - fetched once per series and
-         * kept for every extra of that series. {@link Tmdb#seasons} leaves
+         * TMDb's season 0, i.e. the specials. {@link Tmdb#seasons} leaves
          * season 0 out on purpose (a numbered playlist has no business
          * matching against it), but a bonus feature is matched by title, not
-         * by number, so it can use it directly.
+         * by number, so it asks for that season directly.
          */
         List<Tmdb.Episode> specials(int seriesId) {
-            if (specials.containsKey(seriesId)) {
-                return specials.get(seriesId);
+            return episodes(seriesId, 0);
+        }
+
+        /** One season of one series, fetched once however many files need it. */
+        List<Tmdb.Episode> episodes(int seriesId, int season) {
+            String key = seriesId + "/" + season;
+            if (bySeason.containsKey(key)) {
+                return bySeason.get(key);
             }
             List<Tmdb.Episode> found = List.of();
             try {
-                found = tmdb.season(seriesId, 0);
+                found = tmdb.season(seriesId, season);
             } catch (IOException | InterruptedException | RuntimeException e) {
-                System.out.println("  TMDb specials unreachable: " + e.getMessage());
+                System.out.println("  TMDb season " + season + " unreachable: " + e.getMessage());
             }
-            specials.put(seriesId, found);
+            bySeason.put(key, found);
             return found;
         }
+
+        private List<Integer> seasonsOf(int seriesId) {
+            if (seasonNumbers.containsKey(seriesId)) {
+                return seasonNumbers.get(seriesId);
+            }
+            List<Integer> found = List.of();
+            try {
+                found = tmdb.seasons(seriesId);
+            } catch (IOException | InterruptedException | RuntimeException e) {
+                System.out.println("  TMDb season list unreachable: " + e.getMessage());
+            }
+            seasonNumbers.put(seriesId, found);
+            return found;
+        }
+
+        /**
+         * Where a file that counts straight through the whole series lands:
+         * "17." is the seventeenth episode TMDb lists, whichever season that
+         * turns out to be. Laying the seasons end to end is only sound once
+         * somebody has said which series this is, so nothing reaches this
+         * without --tmdb-id.
+         *
+         * @return null when the series runs out before that number
+         */
+        Slot slot(int seriesId, int absolute) {
+            int left = absolute;
+            for (int season : seasonsOf(seriesId)) {
+                List<Tmdb.Episode> list = episodes(seriesId, season);
+                if (left <= list.size()) {
+                    return new Slot(season, list.get(left - 1));
+                }
+                left -= list.size();
+            }
+            return null;
+        }
+
+        /** @return null when TMDb has no such episode */
+        Tmdb.Episode episode(int seriesId, int season, int number) {
+            for (Tmdb.Episode candidate : episodes(seriesId, season)) {
+                if (candidate.number() == number) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+    }
+
+    /** One episode of one season, as TMDb has it. */
+    private record Slot(int season, Tmdb.Episode episode) {
     }
 
     private static Plan plan(Context context, Path file) {
@@ -806,6 +928,10 @@ final class Tidy {
     }
 
     private static Plan show(Context context, Path file) {
+        if (context.pinned != null) {
+            return named(context, file);
+        }
+
         Guess.Episode episode = Guess.episode(file.getFileName().toString());
         String how = "file name";
 
@@ -834,6 +960,62 @@ final class Tidy {
                 .resolve(Naming.seasonFolder(episode.season()))
                 .resolve(Naming.episodeFile(name, episode.season(), episode.episode(),
                         episode.title(), extension(file))), how);
+    }
+
+    /**
+     * A file of a series --tmdb-id already settled.
+     *
+     * Knowing the series outright buys two things the guessing cannot have.
+     * A name that says nothing but its position - "01. Ghost Stories (2000)
+     * (Dual Audio DVDRip 960x720 10bit HEVC).mkv", the whole of a rip where
+     * only the number differs from one file to the next - still lands,
+     * because the number can be counted off against the seasons TMDb lists.
+     * And the episode title is taken from TMDb rather than from the name, so
+     * a release group's trailing notes do not become part of it.
+     *
+     * @return null when the name carries neither a season/episode pair nor a
+     *         leading number, and does not match a special by title either
+     */
+    private static Plan named(Context context, Path file) {
+        Tmdb.Series series = context.pinned;
+        String fileName = file.getFileName().toString();
+
+        int season;
+        int number;
+        String title;
+        String how;
+
+        Guess.Episode episode = Guess.episode(fileName);
+        if (episode != null) {
+            season = episode.season();
+            number = episode.episode();
+            title = episode.title();
+            how = "file name + TMDb";
+        } else {
+            Integer absolute = Guess.ordinal(fileName);
+            if (absolute == null) {
+                return special(context, file);
+            }
+            Slot slot = context.slot(series.id(), absolute);
+            if (slot == null) {
+                return null;
+            }
+            season = slot.season();
+            number = slot.episode().number();
+            title = slot.episode().name();
+            how = "episode number + TMDb";
+        }
+
+        Tmdb.Episode known = context.episode(series.id(), season, number);
+        if (known != null && known.name() != null && !known.name().isBlank()) {
+            title = known.name();
+        }
+
+        return new Plan(file, context.target
+                .resolve(Naming.seriesFolder(series.name(), series.year(), series.id()))
+                .resolve(Naming.seasonFolder(season))
+                .resolve(Naming.episodeFile(series.name(), season, number, title,
+                        extension(file))), how);
     }
 
     /**
@@ -867,7 +1049,9 @@ final class Tidy {
             return null;
         }
 
-        Tmdb.Series series = context.lookup(extra.series(), false);
+        Tmdb.Series series = (context.pinned != null)
+                ? context.pinned
+                : context.lookup(extra.series(), false);
         if (series == null) {
             return null;
         }

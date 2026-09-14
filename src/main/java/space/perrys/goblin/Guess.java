@@ -51,6 +51,16 @@ final class Guess {
     private static final Pattern TRACK = Pattern.compile("^\\s*(\\d{1,3})\\s*[-._)]\\s*(.+)$");
 
     /**
+     * A number at the very front and nothing that says what it counts:
+     * "01. Ghost Stories.mkv", "1 The Zeta Project.mkv", "003 - Title.mkv".
+     *
+     * Three digits at most, so a year or a resolution cannot be read as a
+     * position, and the number has to be followed by the end of the name or
+     * by a separator - "1080p" counts nothing.
+     */
+    private static final Pattern ORDINAL = Pattern.compile("^\\s*(\\d{1,3})\\s*[-._)]?(?:\\s|$)");
+
+    /**
      * Where a title stops and the release notes begin. Everything from the
      * first of these onwards is somebody's encoding settings, not the name of
      * anything.
@@ -186,6 +196,25 @@ final class Guess {
         // A name made only of digits is a barcode or a scanner's counter, not
         // a series. Better unsorted than filed under "1234567890".
         return series.matches(".*\\p{L}.*") ? new Comic(series, number, year) : null;
+    }
+
+    /**
+     * The position a file claims by leading with a number, for a playlist
+     * that numbers its episodes straight through instead of naming seasons.
+     *
+     * On its own this says nothing - a seventeenth of what? - so it is only
+     * of use where the series is already settled, which is why nothing reads
+     * it without an explicit TMDb id.
+     *
+     * @return the number, or null when the name does not start with one
+     */
+    static Integer ordinal(String fileName) {
+        Matcher m = ORDINAL.matcher(stripExtension(fileName).strip());
+        if (!m.find()) {
+            return null;
+        }
+        int number = Integer.parseInt(m.group(1));
+        return (number > 0) ? number : null;
     }
 
     /**
