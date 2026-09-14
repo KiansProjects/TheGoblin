@@ -52,13 +52,18 @@ final class Guess {
 
     /**
      * A number at the very front and nothing that says what it counts:
-     * "01. Ghost Stories.mkv", "1 The Zeta Project.mkv", "003 - Title.mkv".
+     * "01. Ghost Stories.mkv", "1 The Zeta Project.mkv", "003 - Title.mkv",
+     * "EP01 - Night of the Sentinels.mkv".
      *
+     * The word in front of the number may only be one that says "episode" and
+     * nothing else, so a title that opens on a word is not read as a count.
      * Three digits at most, so a year or a resolution cannot be read as a
-     * position, and the number has to be followed by the end of the name or
-     * by a separator - "1080p" counts nothing.
+     * position either, and the number has to be followed by the end of the
+     * name or by a separator - "1080p" counts nothing.
      */
-    private static final Pattern ORDINAL = Pattern.compile("^\\s*(\\d{1,3})\\s*[-._)]?(?:\\s|$)");
+    private static final Pattern ORDINAL = Pattern.compile(
+            "^\\s*(?:(?:episode|ep|e|#)[\\s._-]*)?(\\d{1,3})\\s*[-._)]?(?:\\s|$)",
+            Pattern.CASE_INSENSITIVE);
 
     /**
      * Where a title stops and the release notes begin. Everything from the

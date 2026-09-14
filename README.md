@@ -766,9 +766,11 @@ of that series, which buys two things:
 
 * **The leading number is read as a position.** `17.` is the seventeenth
   episode TMDb lists, counted straight through the seasons — so a rip numbered
-  1 to 65 across three seasons still lands in the right one. Counting like
-  that is only sound once somebody has said which series this is, which is why
-  nothing does it without this option.
+  1 to 65 across three seasons still lands in the right one. `EP17`, `Ep. 17`,
+  `Episode 17` and `#17` count the same; a word in front of the number is only
+  allowed when it says "episode" and nothing else, so `Enter Magneto.mkv` stays
+  a title. Counting like that is only sound once somebody has said which series
+  this is, which is why nothing does it without this option.
 * **The episode title comes from TMDb**, not from the file name — so a release
   group's trailing `ia` or `WEB-DL.XviD.MP3` never becomes part of it. That
   holds for files that *do* carry `S01E02` as well.
