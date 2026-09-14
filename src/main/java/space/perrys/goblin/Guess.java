@@ -95,6 +95,15 @@ final class Guess {
     record Track(Integer number, String title) {
     }
 
+    /**
+     * A file that says where it comes in a series, and sometimes what it is
+     * called as well.
+     *
+     * @param title null when the number is the whole of the name
+     */
+    record Position(int number, String title) {
+    }
+
     private Guess() {
     }
 
@@ -211,15 +220,26 @@ final class Guess {
      * of use where the series is already settled, which is why nothing reads
      * it without an explicit TMDb id.
      *
-     * @return the number, or null when the name does not start with one
+     * What follows the number is returned with it. A rip that counts its own
+     * way still names its episodes, and the name is the half of "EP34 - Cold
+     * Comfort" that cannot quietly be off by one.
+     *
+     * @return the number and what follows it, or null when the name does not
+     *         start with a number
      */
-    static Integer ordinal(String fileName) {
-        Matcher m = ORDINAL.matcher(stripExtension(fileName).strip());
+    static Position ordinal(String fileName) {
+        String name = words(stripExtension(fileName)).strip();
+
+        Matcher m = ORDINAL.matcher(name);
         if (!m.find()) {
             return null;
         }
         int number = Integer.parseInt(m.group(1));
-        return (number > 0) ? number : null;
+        if (number <= 0) {
+            return null;
+        }
+        String title = clean(name.substring(m.end()));
+        return new Position(number, title.isEmpty() ? null : title);
     }
 
     /**

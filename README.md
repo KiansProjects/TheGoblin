@@ -764,20 +764,31 @@ The number is the one in the series' themoviedb.org address, and pasting that
 whole address works too. Every file in the run is then taken to be an episode
 of that series, which buys two things:
 
-* **The leading number is read as a position.** `17.` is the seventeenth
-  episode TMDb lists, counted straight through the seasons — so a rip numbered
-  1 to 65 across three seasons still lands in the right one. `EP17`, `Ep. 17`,
-  `Episode 17` and `#17` count the same; a word in front of the number is only
-  allowed when it says "episode" and nothing else, so `Enter Magneto.mkv` stays
-  a title. Counting like that is only sound once somebody has said which series
-  this is, which is why nothing does it without this option.
-* **The episode title comes from TMDb**, not from the file name — so a release
-  group's trailing `ia` or `WEB-DL.XviD.MP3` never becomes part of it. That
-  holds for files that *do* carry `S01E02` as well.
+* **An episode title in the name decides where the file goes.** `EP34 - Cold
+  Comfort.mkv` is matched against every season of the series and filed where
+  that title is, not where the 34 points — a rip that counts its own way
+  through a show is off by one long before it is wrong about what an episode
+  is called. The match is the same one `--match-titles` uses: nothing matching
+  well enough, or two episodes matching equally well, reads as no title at all
+  and falls through to the number. The halves of a two-parter usually do match
+  equally well, so those are counted rather than named.
+* **Otherwise the leading number is read as a position.** `17.` is the
+  seventeenth episode TMDb lists, counted straight through the seasons — so a
+  rip numbered 1 to 65 across three seasons still lands in the right one.
+  `EP17`, `Ep. 17`, `Episode 17` and `#17` count the same; a word in front of
+  the number is only allowed when it says "episode" and nothing else, so
+  `Enter Magneto.mkv` stays a title. Counting like that is only sound once
+  somebody has said which series this is, which is why nothing does it without
+  this option.
+* **The title that gets written comes from TMDb** either way, not from the file
+  name — so a release group's trailing `ia` or `WEB-DL.XviD.MP3` never becomes
+  part of it. That holds for files that *do* carry `S01E02` as well.
 
 It is one series per run, so point it at one zip or one folder at a time. A
 file whose number runs past the end of the series is left alone rather than
-filed somewhere plausible.
+filed somewhere plausible. The dry run's last column says which of the two
+placed each file — `episode title + TMDb` or `episode number + TMDb` — which
+is the thing to read when the numbering is in doubt.
 
 ### Bonus features numbered "x01"
 

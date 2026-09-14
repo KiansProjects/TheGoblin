@@ -614,6 +614,9 @@ final class Tidy {
          */
         final Tmdb.Series pinned;
 
+        /** Every episode of {@link #pinned} by title, built on first use. */
+        private TitleMatch titles;
+
         Context(String type, Path root, Path target, boolean useDatabase, Integer tmdbId) {
             this.type = type;
             this.root = root.toAbsolutePath().normalize();
@@ -727,6 +730,32 @@ final class Tidy {
                 left -= list.size();
             }
             return null;
+        }
+
+        /**
+         * The episode a file name's own title names, out of every season of
+         * the series it was pinned to.
+         *
+         * Built on first use and then kept, so a run whose names carry no
+         * titles never asks for it. Nothing matching well enough, or two
+         * episodes matching equally well, reads the same as no title at all -
+         * the caller falls back to counting rather than to a guess.
+         *
+         * @return null when there is nothing to match or nothing matches
+         */
+        TitleMatch.Ref byTitle(String title) {
+            if (title == null || title.isBlank() || pinned == null) {
+                return null;
+            }
+            if (titles == null) {
+                try {
+                    titles = TitleMatch.of(tmdb, pinned.id());
+                } catch (IOException | InterruptedException | RuntimeException e) {
+                    System.out.println("  TMDb episode titles unreachable: " + e.getMessage());
+                    titles = new TitleMatch();
+                }
+            }
+            return titles.find(title).orElse(null);
         }
 
         /** @return null when TMDb has no such episode */
@@ -965,13 +994,16 @@ final class Tidy {
     /**
      * A file of a series --tmdb-id already settled.
      *
-     * Knowing the series outright buys two things the guessing cannot have.
+     * Knowing the series outright buys three things the guessing cannot have.
      * A name that says nothing but its position - "01. Ghost Stories (2000)
      * (Dual Audio DVDRip 960x720 10bit HEVC).mkv", the whole of a rip where
      * only the number differs from one file to the next - still lands,
      * because the number can be counted off against the seasons TMDb lists.
-     * And the episode title is taken from TMDb rather than from the name, so
-     * a release group's trailing notes do not become part of it.
+     * A name that also carries an episode title - "EP34 - Cold Comfort.mkv" -
+     * is placed by that title instead, because a rip that counts its own way
+     * through a series is off by one long before it is wrong about what an
+     * episode is called. And the title written out comes from TMDb either
+     * way, so a release group's trailing notes do not become part of it.
      *
      * @return null when the name carries neither a season/episode pair nor a
      *         leading number, and does not match a special by title either
@@ -992,18 +1024,26 @@ final class Tidy {
             title = episode.title();
             how = "file name + TMDb";
         } else {
-            Integer absolute = Guess.ordinal(fileName);
-            if (absolute == null) {
+            Guess.Position position = Guess.ordinal(fileName);
+            if (position == null) {
                 return special(context, file);
             }
-            Slot slot = context.slot(series.id(), absolute);
-            if (slot == null) {
-                return null;
+            TitleMatch.Ref named = context.byTitle(position.title());
+            if (named != null) {
+                season = named.season();
+                number = named.episode();
+                title = named.title();
+                how = "episode title + TMDb";
+            } else {
+                Slot slot = context.slot(series.id(), position.number());
+                if (slot == null) {
+                    return null;
+                }
+                season = slot.season();
+                number = slot.episode().number();
+                title = slot.episode().name();
+                how = "episode number + TMDb";
             }
-            season = slot.season();
-            number = slot.episode().number();
-            title = slot.episode().name();
-            how = "episode number + TMDb";
         }
 
         Tmdb.Episode known = context.episode(series.id(), season, number);
