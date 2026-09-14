@@ -682,6 +682,7 @@ before it does anything, so check that line.
 | `--flat` | no folder per book, books only |
 | `--by <field>` | group books by `author`, `publisher` or `none` |
 | `--no-database` | no lookup at all |
+| `--tmdb-id <id>` | the series the whole run belongs to, shows only |
 | `--upload` | copy the result on to the SFTP target |
 | `--keep-local` | with `--upload`, keep the local copy |
 | `--log <file>` | where the undo log goes |
@@ -746,6 +747,35 @@ Three sources, in this order — and the database is last, not first:
 The comic folder carries the **earliest** year seen for that series, the file
 carries the issue's own — otherwise one run would scatter across `Saga (2012)`
 and `Saga (2013)`.
+
+### Naming the series outright
+
+A rip that numbers its episodes and says nothing else — `01. Ghost Stories
+(2000) (Dual Audio DVDRip 960x720 10bit HEVC).mkv`, and fifteen more where
+only the number differs — carries no season, no episode marker and no episode
+title. There is nothing in such a name to identify, so it is left where it
+lies. `--tmdb-id` supplies what the name will not:
+
+```
+tidy "https://archive.org/.../some-show.zip" --type shows --tmdb-id 1877 --apply
+```
+
+The number is the one in the series' themoviedb.org address, and pasting that
+whole address works too. Every file in the run is then taken to be an episode
+of that series, which buys two things:
+
+* **The leading number is read as a position.** `17.` is the seventeenth
+  episode TMDb lists, counted straight through the seasons — so a rip numbered
+  1 to 65 across three seasons still lands in the right one. Counting like
+  that is only sound once somebody has said which series this is, which is why
+  nothing does it without this option.
+* **The episode title comes from TMDb**, not from the file name — so a release
+  group's trailing `ia` or `WEB-DL.XviD.MP3` never becomes part of it. That
+  holds for files that *do* carry `S01E02` as well.
+
+It is one series per run, so point it at one zip or one folder at a time. A
+file whose number runs past the end of the series is left alone rather than
+filed somewhere plausible.
 
 ### Bonus features numbered "x01"
 
