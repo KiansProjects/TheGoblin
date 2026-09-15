@@ -7,6 +7,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -40,23 +41,53 @@ final class TitleMatch {
      * One title in the three shapes it gets compared in.
      *
      * @param folded lowercase letters, digits and single spaces
-     * @param base   without a trailing part number
-     * @param stem   without a trailing part number or a leading article
+     * @param base   without the part number
+     * @param stem   without the part number or a leading article
      * @param words  the stem split on spaces
+     * @param part   which half of a multi-parter this is, 0 when it says
+     *               nothing about that
      */
-    private record Shape(String folded, String base, String stem, List<String> words) {
+    private record Shape(String folded, String base, String stem, List<String> words, int part) {
 
         static Shape of(String text) {
             String folded = fold(text);
-            String base = PART.matcher(folded).replaceAll("").strip();
+            String base = folded;
+            int part = 0;
+
+            // At the end, "Sanctuary (2)" and "Savage Land, Strange Heart -
+            // Part Two", or in the middle, "The Phoenix Saga, Part I
+            // Sacrifice" - where TMDb writes the same thing as "The Phoenix
+            // Saga, Sacrifice (1)".
+            Matcher trailing = PART.matcher(folded);
+            Matcher infix = INFIX_PART.matcher(folded);
+            if (trailing.find()) {
+                // A bare digit at the end is a part number on its own; a word
+                // or a Roman numeral is one only where "part" says so, since
+                // a title may well end in "One" or in "I".
+                String numeral = (trailing.group(1) != null) ? trailing.group(1) : trailing.group(2);
+                part = partNumber(numeral);
+                base = folded.substring(0, trailing.start()).strip();
+            } else if (infix.find()) {
+                part = partNumber(infix.group(1));
+                base = (folded.substring(0, infix.start()) + " "
+                        + folded.substring(infix.end())).replaceAll("\\s+", " ").strip();
+            }
+            if (base.isEmpty()) {
+                base = folded;
+                part = 0;
+            }
+
             String stem = ARTICLE.matcher(base).replaceFirst("");
             return new Shape(folded, base, stem,
-                    stem.isEmpty() ? List.of() : List.of(stem.split(" ")));
+                    stem.isEmpty() ? List.of() : List.of(stem.split(" ")), part);
         }
     }
 
     private record Candidate(Ref ref, Shape shape) {
     }
+
+    /** How a part number is written: a digit, a Roman numeral, or a word. */
+    private static final String NUMERAL = "[1-5]|i{1,3}|iv|v|one|two|three|four|five";
 
     /**
      * TMDb marks the halves of a two-parter as "(1)" and "(2)", uploaders
@@ -65,7 +96,17 @@ final class TitleMatch {
      * whether its title was long enough to afford them out of a budget of one
      * character in ten.
      */
-    private static final Pattern PART = Pattern.compile("\\s(?:part|teil)?\\s*[1-9]$");
+    private static final Pattern PART = Pattern.compile(
+            "\\s(?:(?:part|pt|teil)\\s*(" + NUMERAL + ")|([1-9]))$");
+
+    /**
+     * The same marker in the middle of a title, where a subtitle follows it:
+     * "The Phoenix Saga, Part I Sacrifice", "Beyond Good and Evil (Part 1)
+     * The End of Time". TMDb moves that number to the end, so the two only
+     * line up once it is off both of them.
+     */
+    private static final Pattern INFIX_PART = Pattern.compile(
+            "\\b(?:part|pt|teil)\\s+(" + NUMERAL + ")\\b");
 
     /**
      * "The Tent Situation" against TMDb's "A Tent Situation", "Chikorita
@@ -79,6 +120,17 @@ final class TitleMatch {
 
     /** The shortest word that may match a longer one it starts. */
     private static final int PREFIX = 4;
+
+    /** @return 1 to 5, whichever way the number was written */
+    private static int partNumber(String numeral) {
+        return switch (numeral) {
+            case "1", "i", "one" -> 1;
+            case "2", "ii", "two" -> 2;
+            case "3", "iii", "three" -> 3;
+            case "4", "iv", "four" -> 4;
+            default -> 5;
+        };
+    }
 
     private final List<Candidate> candidates = new ArrayList<>();
 
@@ -202,6 +254,14 @@ final class TitleMatch {
         Shape episode = candidate.shape();
         int best = 0;
         for (Shape video : shapes) {
+            // Both say which half they are and they disagree: the one thing
+            // two titles can differ in that settles the matter outright.
+            // Without this the halves of every two-parter fold to the same
+            // base and tie, and a tie is thrown away.
+            if (video.part() != 0 && episode.part() != 0 && video.part() != episode.part()) {
+                continue;
+            }
+
             if (video.folded().equals(episode.folded())) {
                 best = Math.max(best, 1_000_000 + episode.folded().length());
             } else if (video.base().equals(episode.base())) {
@@ -212,6 +272,13 @@ final class TitleMatch {
                 best = Math.max(best, 700_000 + episode.stem().length());
             } else if ((" " + video.folded() + " ").contains(" " + episode.folded() + " ")) {
                 best = Math.max(best, 1_000 + episode.folded().length());
+            } else if (video.part() == episode.part() && !episode.base().isEmpty()
+                    && (" " + video.base() + " ").contains(" " + episode.base() + " ")) {
+                // TMDb often leaves the subtitle off a part it numbers -
+                // "Beyond Good and Evil (1)" against the upload's "Beyond
+                // Good and Evil (Part 1) The End of Time". Safe only because
+                // the halves have already been told apart above.
+                best = Math.max(best, 1_000 + episode.base().length());
             } else {
                 int allowed = tolerance(episode.folded());
                 int distance = distance(video.folded(), episode.folded(), allowed);
@@ -220,7 +287,24 @@ final class TitleMatch {
                 }
             }
         }
+
+        // The video says nothing about which half it is and the episode does.
+        // Whoever writes "Pt. 2" on the second half writes nothing at all on
+        // the first, so the earlier part is the likelier reading - and saying
+        // so is what breaks the tie that would otherwise throw both away.
+        if (best > 0 && episode.part() > 0 && !saysPart(shapes)) {
+            best -= episode.part();
+        }
         return best;
+    }
+
+    private static boolean saysPart(List<Shape> shapes) {
+        for (Shape shape : shapes) {
+            if (shape.part() != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
