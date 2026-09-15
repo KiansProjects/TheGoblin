@@ -232,9 +232,41 @@ final class Tidy {
                     convert, withTitles, flat, group, tmdbId);
         } finally {
             if (zipWork != null) {
-                Goblin.deleteTree(zipWork);
+                keepOrDelete(zipWork, apply);
             }
         }
+    }
+
+    /**
+     * Clears the scratch copy of a downloaded archive away - unless sorting
+     * left something in it.
+     *
+     * A file the sort could not place is never moved, so after a run that
+     * did move things it is the only thing still in there. Deleting the
+     * folder would take it with it, and the archive it came from is the only
+     * other copy. So the folder stays, loudly, and the run that placed
+     * everything cleans up as before. A dry run moves nothing at all, which
+     * is not the same thing, and still clears up after itself.
+     */
+    private static void keepOrDelete(Path work, boolean apply) {
+        long left = 0;
+        if (apply) {
+            try (var walk = Files.walk(work)) {
+                left = walk.filter(Files::isRegularFile).count();
+            } catch (IOException e) {
+                // Rather keep a folder that is already empty than delete one
+                // that is not.
+                left = 1;
+            }
+        }
+        if (left == 0) {
+            Goblin.deleteTree(work);
+            return;
+        }
+        System.out.printf("%n%d file(s) could not be placed and are still in %s%n", left, work);
+        System.out.println("The archive they came from is the only other copy, so they are "
+                + "kept rather than cleared away with the rest. Nothing will tidy that folder "
+                + "up on its own.");
     }
 
     private static boolean looksLikeUrl(String arg) {
