@@ -108,9 +108,28 @@ final class Guess {
     }
 
     /**
-     * @return null when the name carries no season/episode marker at all
+     * @return null when the name carries no season/episode marker at all, or
+     *         none that says which series it belongs to
      */
     static Episode episode(String fileName) {
+        // A name that is nothing but "S01E02" identifies an episode of
+        // nothing, and there is nowhere to file that.
+        Episode found = numbering(fileName);
+        return (found == null || found.series().isEmpty()) ? null : found;
+    }
+
+    /**
+     * The same, for a name that does not have to say which series it belongs
+     * to because something else already has.
+     *
+     * "S1E01 - Hindsight Part 1.mp4" states its season and episode and
+     * nothing else, which is a whole answer once the series is settled and
+     * no answer at all before that - so only a caller holding a series of
+     * its own has any business reading it.
+     *
+     * @return series as far as the name gives it up, which may be empty
+     */
+    static Episode numbering(String fileName) {
         String name = words(stripExtension(fileName));
 
         Matcher m = EPISODE.matcher(name);
@@ -125,9 +144,7 @@ final class Guess {
         String series = clean(name.substring(0, m.start()));
         String title = clean(name.substring(m.end()));
 
-        // A name that is nothing but "S01E02" identifies an episode of nothing.
-        return series.isEmpty() ? null : new Episode(series, season, episode,
-                title.isEmpty() ? null : title);
+        return new Episode(series, season, episode, title.isEmpty() ? null : title);
     }
 
     /**

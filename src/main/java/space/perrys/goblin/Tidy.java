@@ -1049,7 +1049,10 @@ final class Tidy {
         String title;
         String how;
 
-        Guess.Episode episode = Guess.episode(fileName);
+        // numbering() rather than episode(): a name that says "S1E01" and
+        // nothing else names no series, which is the whole reason --tmdb-id
+        // was given.
+        Guess.Episode episode = Guess.numbering(fileName);
         if (episode != null) {
             season = episode.season();
             number = episode.episode();

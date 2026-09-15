@@ -771,6 +771,9 @@ of that series, which buys two things:
   is called. The match is the same one `--match-titles` uses, and it reads the
   part numbers on both sides, so `Savage Land, Strange Heart - Part One` finds
   TMDb's `Savage Land, Strange Heart (1)` and not its second half.
+* **A name that is nothing but `S01E02` is read too.** Without `--tmdb-id` such
+  a name identifies an episode of nothing and is refused; here the series is
+  already settled, so the season and episode it states are the whole answer.
 * **A name that carries a title TMDb does not know is left alone.** Counting
   it into place anyway would give it somebody else's episode title, and the
   file would then be wrong about its own contents in a way nothing later can
