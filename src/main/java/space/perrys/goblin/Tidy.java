@@ -1034,6 +1034,15 @@ final class Tidy {
                 number = named.episode();
                 title = named.title();
                 how = "episode title + TMDb";
+            } else if (position.title() != null) {
+                // The name says what the episode is called and TMDb knows no
+                // episode by that name. Counting anyway would file it under
+                // somebody else's title, and the file would then be wrong
+                // about its own contents in a way nothing later can catch.
+                // A rip that counts its own way through a series is exactly
+                // where that happens, and exactly where the count cannot be
+                // trusted either.
+                return null;
             } else {
                 Slot slot = context.slot(series.id(), position.number());
                 if (slot == null) {
