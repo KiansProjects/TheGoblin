@@ -1001,6 +1001,26 @@ ffmpeg but no Java - which is what a media server usually is.
 Same rules, same defaults, same dry run. `Tracks.java` is the reference and
 this is the copy that travels; if they ever disagree, the Java one is right.
 
+### What the library holds, and what it does not
+
+`panel/library-report.sh` writes an AsciiDoc inventory of a whole library:
+every show and film, what they are encoded at, which audio languages they
+carry, and - for shows - which episode numbers TMDb lists that no file
+claims.
+
+```
+./library-report.sh /srv/media
+./library-report.sh --out /tmp/library.adoc /srv/media
+```
+
+A season with no file at all is reported as the whole season rather than as
+thirteen separate gaps, and the other direction is reported too: an episode
+number TMDb does not have, which is usually a special filed in the wrong
+season. A folder without a `[tmdbid-N]` is listed apart instead of guessed
+at. One TMDb request per show, and one ffprobe per file - which is what makes
+it take a while over a large library. It reads, and writes nothing but the
+report.
+
 Jellyfin reads all of this when it next scans the library. "Automatically
 refresh metadata from the internet: Never" does not stop that - the setting is
 about the databases, not about the file.
