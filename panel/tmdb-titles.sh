@@ -40,6 +40,31 @@ fi
 
 dir="${1:?Usage: $0 [--apply] <show folder>}"
 
+# A file name trimmed until the file system will take it.
+#
+# Linux stores at most 255 bytes per name - bytes, not characters, so a title
+# in Japanese or with accents runs out sooner than its length suggests. And
+# one title is long on its own: TMDb has Clerks S01E05 as a 260-character
+# joke, which mv answers with "File name too long". The numbering at the
+# front is what has to survive, so the cut falls at the end, on a word
+# boundary unless that would throw away half of what fits.
+shorten() {
+    local name=$1 ext=$2 budget trimmed
+    budget=$((255 - ${#ext} - 1))
+    [[ "$(printf '%s' "$name" | wc -c)" -le "$budget" ]] && { printf '%s' "$name"; return; }
+
+    # A character at a time rather than head -c, which would cut a multi-byte
+    # character in half and leave the stub in the name.
+    while [[ "$(printf '%s' "$name" | wc -c)" -gt "$budget" ]]; do
+        name=${name%?}
+    done
+
+    trimmed=${name% *}
+    [[ "$trimmed" != "$name" && ${#trimmed} -ge $((${#name} / 2)) ]] && name=$trimmed
+    # Nothing left dangling where the cut fell.
+    printf '%s' "$name" | sed -e 's/[[:space:]_,.;:-]*$//'
+}
+
 have_jq=true
 command -v jq >/dev/null 2>&1 || have_jq=false
 
@@ -129,6 +154,7 @@ while IFS= read -r -d '' file <&3; do
     ext="${name##*.}"
     dest_name="$show S$(printf '%02d' "$season_num")E$(printf '%02d' "$episode_num")"
     [[ -n "$clean_title" ]] && dest_name="$dest_name - $clean_title"
+    dest_name="$(shorten "$dest_name" "$ext")"
     dest="$(dirname "$file")/$dest_name.$ext"
 
     if [[ "$(realpath -m "$file")" == "$(realpath -m "$dest")" ]]; then

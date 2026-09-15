@@ -1,5 +1,6 @@
 package space.perrys.goblin;
 
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 
 /** Builds the paths the way Jellyfin's scanner expects them. */
@@ -10,6 +11,12 @@ final class Naming {
 
     /** Goes into file names when nothing is left after cleaning. */
     private static final String FALLBACK = "Untitled";
+
+    /** What a Linux file system stores per name. Bytes, not characters. */
+    private static final int NAME_MAX = 255;
+
+    /** Left dangling by a cut, and not worth keeping at the end of a name. */
+    private static final Pattern TRAILING = Pattern.compile("[\\s\\-\u2013_,.;:]+$");
 
     private Naming() {
     }
@@ -66,6 +73,47 @@ final class Naming {
                 name = base + " - " + title;
             }
         }
-        return name + "." + ext;
+        return shorten(name, ext) + "." + ext;
+    }
+
+    /**
+     * A name trimmed until the file system will take it.
+     *
+     * The limit is 255 bytes per name rather than 255 characters, so a title
+     * in Japanese or one with accents runs out sooner than its length
+     * suggests. And a title can be long entirely on its own: TMDb has Clerks
+     * S01E05 as a 260-character joke, which the move answers with "File name
+     * too long" and no file.
+     *
+     * The numbering at the front is what has to survive, so the cut falls at
+     * the end - on a word boundary unless that would throw away half of what
+     * fits, and never inside a character.
+     */
+    private static String shorten(String name, String ext) {
+        int budget = NAME_MAX - (ext.length() + 1);
+        if (name.getBytes(StandardCharsets.UTF_8).length <= budget) {
+            return name;
+        }
+
+        StringBuilder kept = new StringBuilder(name.length());
+        int used = 0;
+        for (int i = 0; i < name.length(); ) {
+            int point = name.codePointAt(i);
+            int width = new String(Character.toChars(point))
+                    .getBytes(StandardCharsets.UTF_8).length;
+            if (used + width > budget) {
+                break;
+            }
+            kept.appendCodePoint(point);
+            used += width;
+            i += Character.charCount(point);
+        }
+
+        String cut = kept.toString();
+        int space = cut.lastIndexOf(' ');
+        if (space >= cut.length() / 2) {
+            cut = cut.substring(0, space);
+        }
+        return TRAILING.matcher(cut).replaceAll("");
     }
 }
