@@ -43,11 +43,13 @@ final class TitleMatch {
      * @param folded lowercase letters, digits and single spaces
      * @param base   without the part number
      * @param stem   without the part number or a leading article
+     * @param spine  without the part number or any article at all
      * @param words  the stem split on spaces
      * @param part   which half of a multi-parter this is, 0 when it says
      *               nothing about that
      */
-    private record Shape(String folded, String base, String stem, List<String> words, int part) {
+    private record Shape(String folded, String base, String stem, String spine,
+                         List<String> words, int part) {
 
         static Shape of(String text) {
             String folded = fold(text);
@@ -78,7 +80,8 @@ final class TitleMatch {
             }
 
             String stem = ARTICLE.matcher(base).replaceFirst("");
-            return new Shape(folded, base, stem,
+            String spine = ARTICLES.matcher(base).replaceAll(" ").replaceAll("\\s+", " ").strip();
+            return new Shape(folded, base, stem, spine,
                     stem.isEmpty() ? List.of() : List.of(stem.split(" ")), part);
         }
     }
@@ -114,6 +117,16 @@ final class TitleMatch {
      * distance for a word that says nothing about which episode is meant.
      */
     private static final Pattern ARTICLE = Pattern.compile("^(?:the|a|an) ");
+
+    /**
+     * An article anywhere in the title, not only at the front: TMDb has "The
+     * Phoenix Saga: Cry of the Banshee (3)" where the rip writes "The Phoenix
+     * Saga, Part III The Cry of the Banshee". One "the" in the middle is
+     * enough to put two spellings of the same title further apart than a
+     * short title can afford, and it says nothing about which episode is
+     * meant.
+     */
+    private static final Pattern ARTICLES = Pattern.compile("\\b(?:the|a|an)\\b");
 
     /** "Haunter vs. Kadabra" against TMDb's "Haunter Versus Kadabra". */
     private static final Pattern VERSUS = Pattern.compile("(?<=^| )vs(?= |$)");
@@ -268,6 +281,8 @@ final class TitleMatch {
                 best = Math.max(best, 900_000 + episode.base().length());
             } else if (!episode.stem().isEmpty() && video.stem().equals(episode.stem())) {
                 best = Math.max(best, 800_000 + episode.stem().length());
+            } else if (!episode.spine().isEmpty() && video.spine().equals(episode.spine())) {
+                best = Math.max(best, 750_000 + episode.spine().length());
             } else if (oneWordApart(video.words(), episode.words())) {
                 best = Math.max(best, 700_000 + episode.stem().length());
             } else if ((" " + video.folded() + " ").contains(" " + episode.folded() + " ")) {
